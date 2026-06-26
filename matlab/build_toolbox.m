@@ -39,7 +39,7 @@ opts.Description = ['Native AI Copilot sidebar for MATLAB/Simulink (Claude Code 
     'Sidecar has zero npm dependencies — no node_modules, no npm install needed.'];
 opts.AuthorName = "jushenghuainango";
 opts.ToolboxMatlabPath = string(here);       % 把 matlab/ 加入路径
-opts.MinimumMatlabRelease = "R2025a";
+opts.MinimumMatlabRelease = "R2023b";
 opts.OutputFile = fullfile(root, "MATLAB-Copilot.mltbx");
 
 matlab.addons.toolbox.packageToolbox(opts);

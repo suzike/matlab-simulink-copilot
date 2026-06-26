@@ -16,9 +16,9 @@
 </div>
 
 <div align="center">
-  <img src="docs/images/ui-mockup.svg" width="680" alt="MATLAB Copilot 面板界面示意">
+  <img src="docs/images/screenshot.jpg" width="900" alt="MATLAB Copilot 真实运行截图">
   <br>
-  <sub>面板界面示意（深色主题；另支持 Light / 随 MATLAB 自动切换）</sub>
+  <sub>📷 真实运行截图：MATLAB R2025b 桌面内停靠的 Copilot 面板 · 工具调用卡 · 富文本表格回答 · 整排快捷动作 · Claude Code / opus 工具栏</sub>
 </div>
 
 ---
@@ -151,7 +151,7 @@ copilot
 
 | 前置条件 | 要求 |
 |---|---|
-| MATLAB | R2025a+（含 Simulink，推荐 R2025b） |
+| MATLAB | R2023b+（含 Simulink，推荐 R2025b） |
 | Node.js | ≥ 20 LTS（**sidecar 零 npm 依赖，无需 `npm install`**） |
 | 后端 CLI | Claude Code（`claude`）或 Codex（`codex`），二选一 |
 | MATLAB MCP | Simulink Agentic Toolkit + `satk_initialize` |
