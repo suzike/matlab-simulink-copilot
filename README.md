@@ -21,6 +21,13 @@
   <sub>📷 真实运行截图：MATLAB R2025b 桌面内停靠的 Copilot 面板 · 工具调用卡 · 富文本表格回答 · 整排快捷动作 · Claude Code / opus 工具栏</sub>
 </div>
 
+<div align="center">
+  <br>
+  <img src="docs/images/ui-mockup.svg" width="680" alt="MATLAB Copilot 界面元素图解">
+  <br>
+  <sub>🎨 界面元素图解（标注示意）：用户气泡 / 助手·思考 / 工具调用 / 权限确认 / 成本状态的配色与布局</sub>
+</div>
+
 ---
 
 ## 📌 这是什么
