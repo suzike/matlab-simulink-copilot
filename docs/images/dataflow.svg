@@ -1,0 +1,54 @@
+<svg viewBox="0 0 920 470" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b1626"/><stop offset="1" stop-color="#16121f"/></linearGradient>
+    <marker id="a2" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#a78bfa"/></marker>
+    <marker id="a2b" markerWidth="9" markerHeight="9" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5eead4"/></marker>
+  </defs>
+  <rect width="920" height="470" rx="14" fill="url(#bg2)"/>
+  <text x="36" y="42" fill="#f3f0fa" font-size="20" font-weight="700">一轮对话的数据流</text>
+
+  <!-- lifelines -->
+  <g font-size="12" font-weight="600" text-anchor="middle">
+    <rect x="40" y="64" width="120" height="34" rx="8" fill="#2c2440" stroke="#473a63"/><text x="100" y="86" fill="#ece8f6">面板 UI</text>
+    <rect x="230" y="64" width="120" height="34" rx="8" fill="#2c2440" stroke="#473a63"/><text x="290" y="86" fill="#ece8f6">MATLAB</text>
+    <rect x="420" y="64" width="120" height="34" rx="8" fill="#231b38" stroke="#7c3aed"/><text x="480" y="86" fill="#e9d5ff">sidecar</text>
+    <rect x="610" y="64" width="120" height="34" rx="8" fill="#2c2440" stroke="#473a63"/><text x="670" y="86" fill="#ece8f6">Claude/Codex</text>
+    <rect x="800" y="64" width="100" height="34" rx="8" fill="#15282d" stroke="#2b6a72"/><text x="850" y="86" fill="#a7f3eb">MATLAB MCP</text>
+  </g>
+  <!-- vertical lifelines -->
+  <g stroke="#3a3050" stroke-dasharray="3 4">
+    <line x1="100" y1="98" x2="100" y2="430"/><line x1="290" y1="98" x2="290" y2="430"/>
+    <line x1="480" y1="98" x2="480" y2="430"/><line x1="670" y1="98" x2="670" y2="430"/><line x1="850" y1="98" x2="850" y2="430"/>
+  </g>
+
+  <!-- steps -->
+  <g font-size="11">
+    <line x1="100" y1="124" x2="288" y2="124" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
+    <text x="104" y="118" fill="#cbbff0">① 用户输入（uihtml 事件桥）</text>
+
+    <line x1="290" y1="160" x2="478" y2="160" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
+    <text x="294" y="154" fill="#cbbff0">② 采集上下文 + 行 JSON（全 ASCII tcpclient）</text>
+
+    <line x1="480" y1="196" x2="668" y2="196" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
+    <text x="484" y="190" fill="#cbbff0">③ spawn CLI · 喂入消息 + 上下文 preamble</text>
+
+    <line x1="670" y1="232" x2="848" y2="232" stroke="#5eead4" stroke-width="1.6" marker-end="url(#a2b)"/>
+    <text x="560" y="226" fill="#7fd9cf">④ 调 MCP 工具读/改实况会话</text>
+
+    <line x1="850" y1="268" x2="672" y2="268" stroke="#5eead4" stroke-width="1.6" marker-end="url(#a2b)"/>
+    <text x="606" y="262" fill="#7fd9cf">⑤ 工具结果</text>
+
+    <line x1="668" y1="304" x2="482" y2="304" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
+    <text x="486" y="298" fill="#cbbff0">⑥ stream-json 事件（token / tool_use / result）</text>
+
+    <line x1="478" y1="340" x2="292" y2="340" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
+    <text x="296" y="334" fill="#cbbff0">⑦ 翻译成 UI 事件 → 行 JSON</text>
+
+    <line x1="288" y1="376" x2="102" y2="376" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
+    <text x="106" y="370" fill="#cbbff0">⑧ 流式渲染（气泡/思考/工具卡）</text>
+  </g>
+
+  <!-- permission side note -->
+  <rect x="360" y="398" width="500" height="30" rx="8" fill="#3a2a52" stroke="#7c3aed"/>
+  <text x="376" y="418" fill="#e9d5ff" font-size="11">⚠ 破坏性操作（改模型/跑代码）经独立控制端口 → 弹 UI 确认卡，用户点确认才执行</text>
+</svg>

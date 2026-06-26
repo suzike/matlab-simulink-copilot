@@ -1,0 +1,13 @@
+# 文本文件统一用 LF 行尾(跨平台一致,避免 CRLF 噪声)
+* text=auto eol=lf
+
+# 二进制文件不做行尾转换
+*.mltbx binary
+*.png   binary
+*.jpg   binary
+*.gif   binary
+*.slx   binary
+*.mdl   binary
+
+# 语言统计:让 GitHub 正确识别(SVG 不计入代码语言)
+*.svg linguist-documentation

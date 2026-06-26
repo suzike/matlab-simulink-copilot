@@ -1,0 +1,27 @@
+{
+  "version": "1.0",
+  "entries": [
+    {
+      "type": "Tab",
+      "id": "copilotTab",
+      "title": "COPILOT",
+      "children": [
+        {
+          "type": "Section",
+          "title": "Assistant",
+          "children": [
+            {
+              "type": "Column",
+              "children": [
+                {
+                  "type": "PushButton",
+                  "action": "copilotOpenAction"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

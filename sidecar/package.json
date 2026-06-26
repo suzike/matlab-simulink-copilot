@@ -1,0 +1,20 @@
+{
+  "name": "matlab-copilot-sidecar",
+  "version": "0.1.0",
+  "description": "本地编排进程:驱动 headless agent(v1=Claude Code),对 MATLAB 暴露 localhost TCP",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "matlab-copilot-sidecar": "src/index.js",
+    "matlab-copilot-approval": "src/permissionServer.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "comment": "零运行时依赖:权限 MCP server 手写 JSON-RPC over stdio,不再用 @modelcontextprotocol/sdk。无需 npm install,.mltbx 也不打包 node_modules(避免 Windows 260 MAX_PATH 问题)。",
+  "dependencies": {}
+}

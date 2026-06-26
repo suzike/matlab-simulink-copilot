@@ -1,0 +1,28 @@
+# ── 依赖与构建产物 ──────────────────────────────
+# sidecar 零 npm 依赖,node_modules 无需提交(也避免 Windows 长路径问题)
+node_modules/
+# Simulink 生成目录
+slprj/
+*.slxc
+
+# ── 日志与临时文件 ──────────────────────────────
+*.log
+.playwright-mcp/
+_verify/
+_nm_bak/
+*.tmp
+
+# ── 本地/个人配置(不随仓库分发)──────────────────
+.claude/
+.spec-workflow/
+
+# ── 图片:默认忽略散落的 PNG(如运行期临时截图),但保留 docs/ 下的文档配图 ──
+*.png
+!docs/**/*.png
+!docs/**/*.svg
+!docs/**/*.gif
+
+# ── 操作系统 ────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini

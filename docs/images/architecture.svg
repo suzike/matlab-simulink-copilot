@@ -1,0 +1,80 @@
+<svg viewBox="0 0 920 620" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b1626"/><stop offset="1" stop-color="#16121f"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#a855f7"/><stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#a78bfa"/>
+    </marker>
+  </defs>
+  <rect width="920" height="620" rx="14" fill="url(#bg)"/>
+
+  <text x="36" y="46" fill="#f3f0fa" font-size="22" font-weight="700">MATLAB / Simulink Copilot — 系统架构</text>
+  <text x="36" y="70" fill="#9a92ad" font-size="13">面板 = 进程内原生 UI · 大脑 = 本地 sidecar 驱动的 headless 后端 · 手 = 复用 MATLAB MCP</text>
+
+  <!-- Layer 1: MATLAB UI -->
+  <rect x="36" y="96" width="848" height="120" rx="12" fill="#241d35" stroke="#3a3050"/>
+  <text x="52" y="122" fill="#c4b5fd" font-size="13" font-weight="700">① MATLAB / Simulink 界面（进程内）</text>
+  <rect x="60" y="134" width="240" height="66" rx="8" fill="#2c2440" stroke="#473a63"/>
+  <text x="180" y="160" fill="#ece8f6" font-size="13" font-weight="600" text-anchor="middle">可停靠面板 uifigure</text>
+  <text x="180" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">uihtml 聊天界面（无 CDN）</text>
+  <rect x="320" y="134" width="240" height="66" rx="8" fill="#2c2440" stroke="#473a63"/>
+  <text x="440" y="160" fill="#ece8f6" font-size="13" font-weight="600" text-anchor="middle">上下文采集</text>
+  <text x="440" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">editor / whos / gcs / gcb / lasterr</text>
+  <rect x="580" y="134" width="284" height="66" rx="8" fill="#2c2440" stroke="#473a63"/>
+  <text x="722" y="160" fill="#ece8f6" font-size="13" font-weight="600" text-anchor="middle">工程级索引 + 会话持久化</text>
+  <text x="722" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">slx/m/数据字典 · git · 按项目恢复</text>
+
+  <!-- arrow 1->2 -->
+  <line x1="300" y1="216" x2="300" y2="250" stroke="#a78bfa" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="312" y="240" fill="#a78bfa" font-size="11">tcpclient · 行分隔 JSON（全 ASCII）</text>
+
+  <!-- Layer 2: sidecar -->
+  <rect x="36" y="256" width="848" height="118" rx="12" fill="#231b38" stroke="#473a63"/>
+  <text x="52" y="282" fill="#c4b5fd" font-size="13" font-weight="700">② 本地 Node sidecar（编排层 · 零 npm 依赖）</text>
+  <rect x="60" y="294" width="190" height="64" rx="8" fill="#2c2440" stroke="#473a63"/>
+  <text x="155" y="320" fill="#ece8f6" font-size="12" font-weight="600" text-anchor="middle">后端适配层</text>
+  <text x="155" y="340" fill="#9a92ad" font-size="10.5" text-anchor="middle">运行时切换 · 多会话</text>
+  <rect x="262" y="294" width="190" height="64" rx="8" fill="#2c2440" stroke="#473a63"/>
+  <text x="357" y="320" fill="#ece8f6" font-size="12" font-weight="600" text-anchor="middle">流式翻译</text>
+  <text x="357" y="340" fill="#9a92ad" font-size="10.5" text-anchor="middle">stream-json → UI 事件</text>
+  <rect x="464" y="294" width="190" height="64" rx="8" fill="#3a2a52" stroke="#7c3aed"/>
+  <text x="559" y="320" fill="#f0e9ff" font-size="12" font-weight="600" text-anchor="middle">权限确认路由</text>
+  <text x="559" y="340" fill="#c4b5fd" font-size="10.5" text-anchor="middle">破坏性操作 → UI 确认</text>
+  <rect x="666" y="294" width="198" height="64" rx="8" fill="#2c2440" stroke="#473a63"/>
+  <text x="765" y="320" fill="#ece8f6" font-size="12" font-weight="600" text-anchor="middle">能力枚举 · 审计</text>
+  <text x="765" y="340" fill="#9a92ad" font-size="10.5" text-anchor="middle">斜杠命令 · JSONL 留痕</text>
+
+  <!-- arrow 2->3 -->
+  <line x1="300" y1="374" x2="300" y2="408" stroke="#a78bfa" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="312" y="398" fill="#a78bfa" font-size="11">spawn CLI · stdout 流式（常驻/每轮可选）</text>
+
+  <!-- Layer 3: backends -->
+  <rect x="36" y="414" width="556" height="118" rx="12" fill="#221a30" stroke="#3a3050"/>
+  <text x="52" y="440" fill="#c4b5fd" font-size="13" font-weight="700">③ AI 后端（headless，可运行时切换）</text>
+  <rect x="60" y="452" width="250" height="64" rx="8" fill="url(#brand)"/>
+  <text x="185" y="478" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">Claude Code</text>
+  <text x="185" y="498" fill="#ede9fe" font-size="10.5" text-anchor="middle">stream-json · 逐 token · ⚡ 常驻</text>
+  <rect x="322" y="452" width="250" height="64" rx="8" fill="#2c2440" stroke="#473a63"/>
+  <text x="447" y="478" fill="#ece8f6" font-size="13" font-weight="700" text-anchor="middle">Codex</text>
+  <text x="447" y="498" fill="#9a92ad" font-size="10.5" text-anchor="middle">codex exec --json · 逐 item</text>
+
+  <!-- MATLAB MCP -->
+  <rect x="612" y="414" width="272" height="118" rx="12" fill="#16242a" stroke="#2b6a72"/>
+  <text x="628" y="440" fill="#5eead4" font-size="13" font-weight="700">操作 MATLAB 的「手」</text>
+  <rect x="628" y="452" width="240" height="64" rx="8" fill="#13312f" stroke="#2b6a72"/>
+  <text x="748" y="476" fill="#a7f3eb" font-size="12" font-weight="600" text-anchor="middle">matlab-mcp-server</text>
+  <text x="748" y="496" fill="#7fd9cf" font-size="10" text-anchor="middle">model_read/edit/test · run_matlab_file</text>
+
+  <line x1="572" y1="484" x2="624" y2="484" stroke="#5eead4" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- back to same MATLAB session -->
+  <path d="M748,532 L748,560 L300,560 L300,536" fill="none" stroke="#5eead4" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+  <text x="430" y="578" fill="#5eead4" font-size="11">shareMATLABSession → attach 到同一个活动 MATLAB 会话（读写你的实况模型）</text>
+
+  <!-- side note -->
+  <text x="884" y="610" fill="#6b6480" font-size="10" text-anchor="end">权限走另一条控制端口 TCP：approval MCP 回连 sidecar → 只读放行 / 破坏性转 UI 确认</text>
+</svg>

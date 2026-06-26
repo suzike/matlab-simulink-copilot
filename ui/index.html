@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MATLAB Copilot</title>
+<style>
+  /* ── 设计系统:精致工程控制台(暗色,贴合 MATLAB R2025b,语义化配色)──────────
+     约束:uihtml 内嵌、无 CDN → 仅系统字体 + 内联 SVG。 */
+  :root {
+    --bg: #15161a; --surface: #1d1e24; --surface2: #25262e; --surface3: #2d2f38;
+    --border: #34363f; --border2: #3f424d;
+    --text: #e9eaee; --muted: #9b9da7; --faint: #6c6e7a;
+    --brand1: #b06bff; --brand2: #7c5cff;      /* agent / 品牌:紫色科技 */
+    --user: #4ea1ff; --user2: #2d7fe0;          /* 用户:冷蓝 */
+    --think: #9b8cff;                            /* 思考:紫 */
+    --tool: #2dd4bf;                             /* 工具:青 */
+    --skill: #f5b945;                            /* 技能:金 */
+    --ok: #46d18a; --warn: #f0a93b; --err: #ff6b6b;
+    --code-bg: #121319; --shadow: 0 6px 20px rgba(0,0,0,.28);
+    --mono: "Cascadia Code","JetBrains Mono","Consolas",monospace;
+    --font: "Segoe UI Variable Display","Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  }
+  /* ── Light 主题:覆盖变量(保留紫色品牌)+ 两处硬编码玻璃条 ── */
+  html[data-theme="light"] {
+    --bg: #f5f6f9; --surface: #ffffff; --surface2: #eef0f4; --surface3: #e3e6ec;
+    --border: #e2e4ea; --border2: #d2d5de;
+    --text: #1b1c21; --muted: #5b5e6a; --faint: #8b8e9a;
+    --brand1: #7c3aed; --brand2: #6d4aff;
+    --user: #2563eb; --user2: #1d4ed8;
+    --think: #6d4aff;
+    --tool: #0d9488; --skill: #b8830a;
+    --ok: #1a9d5f; --warn: #c47f15; --err: #db4b4b;
+    --code-bg: #f1eefb; --shadow: 0 6px 20px rgba(30,30,60,.10);
+  }
+  html[data-theme="light"] body {
+    background:
+      radial-gradient(900px 360px at 100% -10%, rgba(124,58,237,.08), transparent 60%),
+      radial-gradient(700px 320px at -10% 0%, rgba(37,99,235,.05), transparent 55%),
+      var(--bg);
+  }
+  html[data-theme="light"] header,
+  html[data-theme="light"] footer { background: rgba(255,255,255,.72); }
+  /* Light:修正落在浅色表面上的浅色文字(用户气泡/报错/权限卡是深色自洽,不受影响)。 */
+  html[data-theme="light"] .bubble.assistant strong { color: #15161a; }
+  html[data-theme="light"] .bubble.assistant code { color: #6d28d9; }
+  html[data-theme="light"] .think .th-head { color: #6d4aff; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background:
+      radial-gradient(900px 360px at 100% -10%, rgba(176,107,255,.10), transparent 60%),
+      radial-gradient(700px 320px at -10% 0%, rgba(78,161,255,.06), transparent 55%),
+      var(--bg);
+    color: var(--text); font-family: var(--font); font-size: 13px;
+    display: flex; flex-direction: column; -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── 顶栏 ── */
+  header { padding: 9px 13px; border-bottom: 1px solid var(--border); background: rgba(29,30,36,.7);
+           backdrop-filter: blur(6px); display: flex; align-items: center; gap: 9px; }
+  .brand { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
+           background: linear-gradient(135deg, var(--brand1), var(--brand2)); color: #fff;
+           box-shadow: 0 2px 10px rgba(124,92,255,.35); }
+  .brand svg { width: 16px; height: 16px; }
+  header .title { font-weight: 650; letter-spacing: .2px; white-space: nowrap; flex: 0 0 auto; }
+  header .title small { color: var(--faint); font-weight: 400; margin-left: 5px; font-size: 10px; }
+  header .status { margin-left: 8px; color: var(--muted); font-size: 11px; max-width: 38%;
+                  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                  display: flex; align-items: center; gap: 6px; }
+  .sdot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: 0 0 auto; }
+  .restore-divider { text-align: center; font-size: 10px; color: var(--faint); margin: 10px 0 6px;
+                     padding: 3px 0; border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border); }
+  .cost-bar { font-size: 10px; font-family: monospace; color: var(--text2);
+              background: var(--surface2); border: 1px solid var(--border); border-radius: 3px;
+              padding: 1px 6px; margin-left: 6px; white-space: nowrap; cursor: default; }
+  .sdot.live { background: var(--ok); box-shadow: 0 0 0 0 rgba(70,209,138,.5); animation: pulse 1.8s infinite; }
+  .sdot.busy { background: var(--warn); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(240,169,59,.5)} 70%{box-shadow:0 0 0 6px rgba(240,169,59,0)} 100%{box-shadow:0 0 0 0 rgba(240,169,59,0)} }
+
+  /* ── 上下文图标(合进顶栏;悬停弹气泡看详情)── */
+  #ctx-chip { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; flex: 0 0 auto;
+              padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border2); background: var(--surface2);
+              color: var(--muted); cursor: default; font-size: 11px; }
+  #ctx-chip:hover { color: var(--text); border-color: var(--brand2); }
+  #ctx-chip svg { width: 13px; height: 13px; opacity: .85; }
+  #ctx-count { font-weight: 700; color: var(--brand1); }
+  #ctx-chip.flash { animation: ctxflash .7s ease; }
+  @keyframes ctxflash { 0% { background: rgba(176,107,255,.30); } 100% { background: var(--surface2); } }
+  #ctx-pop { position: fixed; top: 46px; right: 10px; z-index: 40; width: 300px; max-height: 52vh; overflow-y: auto;
+             background: var(--surface2); border: 1px solid var(--border2); border-radius: 12px; padding: 10px 12px;
+             box-shadow: 0 12px 40px rgba(0,0,0,.45); display: flex; flex-direction: column; gap: 4px;
+             opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .12s, transform .12s; }
+  #ctx-pop.show { opacity: 1; transform: translateY(0); }
+  #ctx-pop .cp-title { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px; }
+  .ctx-row { display: flex; gap: 8px; font-size: 11.5px; line-height: 1.5; }
+  .ctx-row b { color: var(--faint); min-width: 52px; flex: 0 0 auto; font-weight: 500; }
+  .ctx-row span { color: var(--text); word-break: break-all; }
+
+  /* ── 标签页(并入顶部行,不单占一行)── */
+  #tabs-list { display: flex; gap: 3px; flex: 0 1 auto; min-width: 0; overflow-x: auto; margin-left: 4px; align-items: center; }
+  #tabs-list::-webkit-scrollbar { height: 0; }
+  .tab { display: inline-flex; align-items: center; gap: 6px; max-width: 132px; height: 25px; padding: 0 10px; cursor: pointer;
+         font-size: 11px; color: var(--muted); border: 1px solid transparent; border-radius: 7px; white-space: nowrap; flex: 0 0 auto;
+         transition: background .15s ease, color .15s ease, border-color .15s ease; }
+  .tab:hover { background: var(--surface2); color: var(--text); }
+  /* 选中态:柔和底色 + 底部品牌色条指示,比整圈高亮边更精致清晰 */
+  .tab.active { background: var(--surface3); color: var(--text); border-color: var(--border2);
+                box-shadow: inset 0 -2px 0 var(--brand1); font-weight: 550; }
+  .tab .tname { overflow: hidden; text-overflow: ellipsis; max-width: 92px; }
+  .tab .tdot { width: 6px; height: 6px; border-radius: 50%; background: var(--warn); flex: 0 0 auto; display: none; }
+  .tab.busy .tdot { display: inline-block; animation: pulse 1s infinite; }
+  .tab .tx { opacity: .4; font-size: 14px; line-height: 1; width: 15px; height: 15px; display: inline-flex;
+             align-items: center; justify-content: center; border-radius: 4px;
+             transition: opacity .12s, background .12s, color .12s; }
+  .tab .tx:hover { opacity: 1; color: var(--err); background: var(--surface); }
+  .tname-input { background: var(--surface); border: 1px solid var(--brand2); color: var(--text);
+                 border-radius: 5px; font: inherit; width: 88px; padding: 0 4px; outline: none; }
+  /* 新建按钮:与标签同高、同圆角,透明底更轻盈,「+」严格居中 */
+  #tab-add { flex: 0 0 auto; width: 25px; height: 25px; border-radius: 7px; border: 1px solid var(--border);
+             display: inline-flex; align-items: center; justify-content: center;
+             background: transparent; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1;
+             transition: background .15s ease, color .15s ease, border-color .15s ease; }
+  #tab-add:hover { color: var(--text); border-color: var(--brand2); background: var(--surface2); }
+
+  /* ── 空会话寄语水印(品牌 + 作者,只在该标签无消息时显示)── */
+  .welcome { margin: auto; text-align: center; color: var(--faint); padding: 24px; user-select: none; }
+  .w-logo { font-size: 30px; color: var(--brand1); }
+  .w-title { font-weight: 650; font-size: 15px; color: var(--text); margin-top: 6px; letter-spacing: .3px; }
+  .w-motto { font-family: var(--mono); font-size: 12px; margin-top: 8px; }
+  .w-motto em { font-style: normal; font-weight: 700;
+                background: linear-gradient(135deg, var(--brand1), var(--user)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .w-sig { margin-top: 6px; font-size: 11px; font-weight: 700;
+           background: linear-gradient(135deg, var(--brand1), var(--user)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+  /* ── 消息区(每个标签页一个 pane)── */
+  #panes { flex: 1; min-height: 0; display: flex; }
+  .pane { flex: 1; overflow-y: auto; padding: 14px 12px; display: none; flex-direction: column; gap: 12px; }
+  .pane.active { display: flex; }
+  .pane::-webkit-scrollbar { width: 9px; }
+  .pane::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 9px; border: 2px solid var(--bg); }
+  /* flex:0 0 auto:防止 overflow:hidden 的卡片在 flex column 里塌成 0。 */
+  .pane > * { flex: 0 0 auto; }
+  .row { display: flex; gap: 9px; align-items: flex-start; animation: rowIn .26s cubic-bezier(.2,.7,.3,1) both; }
+  .row.user { justify-content: flex-end; }
+  @keyframes rowIn { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+
+  .avatar { width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto; display: grid; place-items: center;
+            color: #fff; box-shadow: var(--shadow); animation: pop .3s ease both; }
+  @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .avatar svg { width: 17px; height: 17px; }
+  .avatar.assistant { background: linear-gradient(135deg, var(--brand1), var(--brand2)); }
+  .avatar.user { background: linear-gradient(135deg, var(--user), var(--user2)); }
+
+  .bubble { max-width: 82%; border-radius: 13px; padding: 9px 13px; line-height: 1.55; word-wrap: break-word;
+            border: 1px solid var(--border); box-shadow: var(--shadow); position: relative; }
+  .bubble.assistant { background: linear-gradient(180deg, var(--surface2), var(--surface)); border-top-left-radius: 4px; }
+  .bubble.user { background: linear-gradient(180deg, #243447, #1f2c3c); border: 1px solid #2c425c; border-top-right-radius: 4px; color: #eaf2fb; }
+  .bubble.streaming::after { content: ''; display: inline-block; width: 7px; height: 1.05em; vertical-align: -2px;
+            margin-left: 2px; background: var(--brand1); border-radius: 1px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* 错误横幅(无头像) */
+  .banner.error { align-self: stretch; background: linear-gradient(180deg, #3a2226, #2c1a1e);
+                  border: 1px solid var(--err); border-radius: 10px; padding: 10px 12px; color: #ffd5d5;
+                  display: flex; gap: 8px; align-items: flex-start; animation: rowIn .26s ease both; }
+  .banner.error svg { width: 16px; height: 16px; flex: 0 0 auto; margin-top: 1px; }
+
+  /* ── 富文本(Markdown)排版 ── */
+  .bubble p { margin: 6px 0; } .bubble p:first-child { margin-top: 0; } .bubble p:last-child { margin-bottom: 0; }
+  .bubble h1,.bubble h2,.bubble h3,.bubble h4,.bubble h5,.bubble h6 { margin: 11px 0 6px; line-height: 1.3; font-weight: 650; }
+  .bubble h1 { font-size: 1.38em; } .bubble h2 { font-size: 1.22em; } .bubble h3 { font-size: 1.1em; color: var(--brand1); }
+  .bubble h4,.bubble h5,.bubble h6 { font-size: 1em; color: var(--muted); }
+  .bubble ul,.bubble ol { margin: 6px 0; padding-left: 20px; } .bubble li { margin: 3px 0; }
+  .bubble ul li::marker { color: var(--brand1); } .bubble ol li::marker { color: var(--brand1); }
+  .bubble blockquote { margin: 7px 0; padding: 3px 12px; border-left: 3px solid var(--brand2);
+                       background: rgba(124,92,255,.06); border-radius: 0 6px 6px 0; color: var(--muted); }
+  .bubble code { background: var(--code-bg); border: 1px solid var(--border2); border-radius: 5px;
+                 padding: .5px 5px; font-family: var(--mono); font-size: .9em; color: #d7c9ff; }
+  .bubble hr { border: none; border-top: 1px solid var(--border2); margin: 9px 0; }
+  .bubble strong { color: #fff; font-weight: 650; } .bubble em { font-style: italic; color: var(--text); }
+  .bubble a { color: var(--user); text-decoration: none; border-bottom: 1px dashed rgba(78,161,255,.5); }
+  .bubble a:hover { border-bottom-style: solid; }
+  /* 气泡操作按钮(复制 / 编辑 / Fork)—— 仅悬停时显示,平时不占高度 */
+  .msg-actions { display: flex; gap: 6px; flex-wrap: wrap; opacity: 0; max-height: 0; margin-top: 0; overflow: hidden;
+                 transition: opacity .12s ease, max-height .12s ease, margin-top .12s ease; }
+  .row:hover .msg-actions, .row:focus-within .msg-actions { opacity: 1; max-height: 32px; margin-top: 8px; }
+  .row.user .msg-actions { justify-content: flex-end; }
+  .ma-btn { background: transparent; border: 1px solid var(--border2); color: var(--muted);
+            border-radius: 7px; padding: 2px 9px; font-size: 10.5px; cursor: pointer; transition: all .12s;
+            display: inline-flex; align-items: center; gap: 4px; }
+  .ma-btn:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); }
+  .row.user .ma-btn { border-color: rgba(255,255,255,.18); color: #cdd9e8; }
+  .row.user .ma-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
+  /* Fork 分支区(嵌在卡片内) */
+  .fork-zone { margin-top: 10px; border-top: 1px dashed var(--brand2); padding-top: 8px; }
+  .fork-head { font-size: 10.5px; color: var(--brand1); font-weight: 600; margin-bottom: 7px; }
+  .fork-msgs { display: flex; flex-direction: column; gap: 8px; }
+  .fork-msgs:empty { display: none; }
+  .fork-msgs .avatar { width: 22px; height: 22px; } .fork-msgs .avatar svg { width: 12px; height: 12px; }
+  .fork-msgs .bubble { box-shadow: none; font-size: 12.5px; }
+  .fork-input-row { display: flex; gap: 6px; margin-top: 8px; align-items: flex-end; }
+  .fork-input { flex: 1; background: var(--surface); border: 1px solid var(--border2); color: var(--text);
+                border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12px; resize: none; max-height: 80px; }
+  .fork-input:focus { outline: none; border-color: var(--brand2); }
+  .fork-send { flex: 0 0 auto; background: linear-gradient(135deg, var(--brand1), var(--brand2)); color: #fff; border: none;
+               border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+  .fork-send:disabled { opacity: .5; cursor: default; }
+  .bubble table { border-collapse: collapse; margin: 7px 0; font-size: .95em; width: 100%; }
+  .bubble th,.bubble td { border: 1px solid var(--border2); padding: 4px 9px; text-align: left; }
+  .bubble th { background: var(--surface3); color: var(--text); }
+  .bubble tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+
+  /* 代码块(带语言头) */
+  .codeblock { margin: 8px 0; border: 1px solid var(--border2); border-radius: 9px; overflow: hidden; background: var(--code-bg); }
+  .codeblock .cb-head { display: flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 10.5px;
+                        color: var(--faint); background: rgba(255,255,255,.025); border-bottom: 1px solid var(--border);
+                        font-family: var(--mono); letter-spacing: .4px; text-transform: uppercase; }
+  .codeblock .cb-head .dotrow { display: flex; gap: 4px; margin-right: 4px; }
+  .codeblock .cb-head i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .codeblock pre { margin: 0; padding: 9px 11px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+  .bubble pre.code { background: var(--code-bg); border: 1px solid var(--border2); border-radius: 8px;
+                     padding: 9px 11px; overflow-x: auto; font-family: var(--mono); font-size: 12px; margin: 8px 0; }
+  .codeblock pre code, .bubble pre.code code { background: none; border: none; padding: 0; color: inherit; }
+
+  /* ── 思考过程块 ── */
+  .think { margin-left: 39px; max-width: calc(82% - 0px); background: linear-gradient(180deg, rgba(155,140,255,.08), rgba(155,140,255,.03));
+           border: 1px solid rgba(155,140,255,.28); border-left: 3px solid var(--think); border-radius: 10px;
+           padding: 7px 11px; font-size: 12px; color: var(--muted); animation: rowIn .26s ease both; }
+  .think .th-head { cursor: pointer; user-select: none; display: flex; gap: 7px; align-items: center; color: #c5bdff; font-weight: 500; }
+  .think .th-head svg { width: 14px; height: 14px; }
+  .think.thinking .th-head svg { animation: spin 2.4s linear infinite; }
+  .think .th-caret { margin-left: auto; transition: transform .15s; opacity: .7; }
+  .think.collapsed .th-caret { transform: rotate(-90deg); }
+  .think .th-body { margin-top: 7px; line-height: 1.5; border-top: 1px dashed rgba(155,140,255,.2); padding-top: 6px; }
+  .think .th-body p { margin: 4px 0; } .think.collapsed .th-body { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 工具 / 技能调用卡片 ── */
+  .tool { margin-left: 39px; max-width: calc(82% - 0px); background: var(--surface2); border: 1px solid var(--border2);
+          border-radius: 10px; overflow: hidden; font-size: 12px; animation: rowIn .26s ease both; }
+  .tool .head { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 7px 11px; }
+  .tool .ticon { width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto; display: grid; place-items: center; color: #08110f; }
+  .tool .ticon svg { width: 13px; height: 13px; }
+  .tool.kind-tool .ticon { background: var(--tool); } .tool.kind-skill .ticon { background: var(--skill); }
+  .tool.kind-file .ticon { background: #7aa2ff; } .tool.kind-bash .ticon { background: #c4c8d4; }
+  .tool .name { font-family: var(--mono); color: var(--text); font-size: 11.5px; }
+  .tool .kindtag { font-size: 9.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--faint); }
+  .tool .pill { margin-left: auto; font-size: 10.5px; padding: 1px 8px; border-radius: 999px; display: inline-flex; gap: 5px; align-items: center; }
+  .tool .pill .spin { width: 10px; height: 10px; border: 2px solid var(--warn); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  .tool.run .pill { color: var(--warn); background: rgba(240,169,59,.12); }
+  .tool.ok .pill { color: var(--ok); background: rgba(70,209,138,.12); }
+  .tool.fail .pill { color: var(--err); background: rgba(255,107,107,.12); }
+  .tool .body { display: none; padding: 0 11px 9px 41px; }
+  .tool.open .body { display: block; }
+  .tool .body pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 7px; padding: 7px;
+                    overflow: auto; font-family: var(--mono); font-size: 11px; margin: 5px 0 0; max-height: 230px; }
+  .tool .body .lbl { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .5px; margin-top: 6px; }
+
+  /* ── 权限确认 ── */
+  .perm { margin-left: 39px; max-width: calc(82% - 0px); background: linear-gradient(180deg, #322a16, #2a230f);
+          border: 1px solid var(--warn); border-radius: 10px; padding: 11px; animation: rowIn .26s ease both; }
+  .perm .q { margin-bottom: 8px; display: flex; gap: 7px; align-items: center; color: #ffe2ad; }
+  .perm .q svg { width: 16px; height: 16px; flex: 0 0 auto; }
+  .perm .tool-name { font-family: var(--mono); color: var(--warn); }
+  .perm pre { background: var(--code-bg); border-radius: 7px; padding: 7px; overflow: auto; font-size: 11px; max-height: 170px; margin: 0 0 9px; }
+  .perm .btns { display: flex; gap: 8px; }
+  .perm button { border: none; border-radius: 8px; padding: 6px 16px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  .perm .allow { background: linear-gradient(135deg, var(--ok), #2fae72); color: #06140d; }
+  .perm .deny { background: var(--surface3); color: var(--text); border: 1px solid var(--border2); }
+  .perm.resolved { opacity: .55; } .perm.resolved button { display: none; }
+  /* 任务清单 - [ ] / - [x] */
+  .todo-list { list-style: none; padding: 0; margin: 6px 0; }
+  .todo-item { display: flex; align-items: flex-start; gap: 7px; padding: 2px 0; }
+  .todo-item label { display: flex; align-items: flex-start; gap: 7px; cursor: pointer; }
+  .todo-cb { margin-top: 3px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+  .todo-done { text-decoration: line-through; color: var(--text2); }
+  /* model_edit 改动预览表格 */
+  .diff-model { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
+  .diff-model code { color: var(--text); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); }
+  .diff-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 9px; }
+  .diff-table th { text-align: left; padding: 3px 8px; background: rgba(255,255,255,.05); color: var(--text2); font-size: 10px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+  .diff-table td { padding: 4px 8px; border-top: 1px solid var(--border); font-family: var(--mono); }
+  .diff-block { color: var(--text2); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .diff-param { color: var(--text); }
+  .diff-new { color: #4ade80; font-weight: 600; }
+  .perm .diff-code { background: var(--code-bg); border-radius: 7px; padding: 7px; overflow: auto; font-size: 11px; max-height: 170px; margin: 0 0 9px; font-family: var(--mono); white-space: pre-wrap; word-break: break-all; }
+  .diff-file { font-size: 11px; color: var(--text); margin-bottom: 9px; font-family: var(--mono); }
+
+  /* ── 结构化诊断卡片 ── */
+  .diagcard { align-self: stretch; background: var(--surface); border: 1px solid var(--border2);
+              border-radius: 11px; padding: 9px 11px; margin: 4px 0; animation: rowIn .26s ease both; }
+  .diag-head { font-weight: 600; font-size: 12px; margin-bottom: 6px; color: var(--text); }
+  .diag-row { display: flex; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); }
+  .diag-row:nth-of-type(1) { border-top: none; }
+  .diag-ic { flex: 0 0 auto; }
+  .diag-row.err .diag-ic { color: var(--err); }
+  .diag-row.warn .diag-ic { color: var(--warn); }
+  .diag-row.info .diag-ic { color: var(--user); }
+  .diag-b { min-width: 0; flex: 1; }
+  .diag-msg { font-size: 12px; line-height: 1.45; word-break: break-word; }
+  .diag-id { display: inline-block; margin-top: 2px; font-size: 10px; color: var(--faint); font-family: var(--mono); }
+  .diag-jump { display: block; margin-top: 5px; background: var(--surface3); border: 1px solid var(--border2);
+               color: var(--brand1); border-radius: 7px; padding: 3px 9px; font-size: 11px; cursor: pointer; }
+  .diag-jump:hover { border-color: var(--brand2); background: var(--surface2); }
+
+  /* ── 变更记录(操作审计)弹窗 ── */
+  #audit-pop { width: 340px; max-height: 320px; overflow-y: auto; }
+  .audit-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; }
+  .audit-row + .audit-row { border-top: 1px solid var(--border); }
+  .audit-st { flex: 0 0 auto; font-size: 12px; }
+  .audit-b { min-width: 0; flex: 1; }
+  .audit-tool { font-family: var(--mono); color: var(--brand1); font-size: 11px; }
+  .audit-act { color: var(--muted); font-size: 11px; word-break: break-word; }
+  .audit-time { color: var(--faint); font-size: 9.5px; }
+  .audit-empty { color: var(--faint); padding: 12px; text-align: center; font-size: 11px; }
+
+  /* ── 底部输入 ── */
+  footer { border-top: 1px solid var(--border); background: rgba(29,30,36,.7); backdrop-filter: blur(6px); padding: 9px; }
+  .quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+  .quick button { background: var(--surface2); border: 1px solid var(--border2); color: var(--muted);
+                  border-radius: 8px; padding: 4px 10px; font-size: 11px; cursor: pointer; transition: all .14s; }
+  .quick button:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); transform: translateY(-1px); }
+  /* 悬停 2 秒弹出的功能说明气泡 */
+  #tip { position: fixed; z-index: 9999; max-width: 280px; background: var(--surface3, #2a2b33);
+         border: 1px solid var(--brand2); border-radius: 10px; padding: 9px 11px; font-size: 12px;
+         line-height: 1.55; color: var(--text); box-shadow: 0 8px 28px rgba(0,0,0,.45);
+         pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+  #tip.show { opacity: 1; transform: translateY(0); }
+  #tip b { color: var(--brand1, #b06bff); }
+  .inputrow { display: flex; gap: 7px; align-items: flex-end; background: var(--surface2); border: 1px solid var(--border2);
+              border-radius: 12px; padding: 6px; transition: border-color .15s; }
+  .inputrow:focus-within { border-color: var(--brand2); box-shadow: 0 0 0 3px rgba(124,92,255,.12); }
+  #input { flex: 1; resize: none; background: transparent; color: var(--text); border: none; outline: none;
+           padding: 5px 6px; font-family: var(--font); font-size: 13px; max-height: 150px; min-height: 30px; line-height: 1.5; }
+  #input::placeholder { color: var(--faint); }
+  #send, #stop { border: none; border-radius: 9px; padding: 0 14px; height: 36px; cursor: pointer; font-size: 13px; font-weight: 600;
+                 display: inline-flex; align-items: center; gap: 6px; }
+  #send { background: linear-gradient(135deg, var(--brand1), var(--brand2)); color: #fff; box-shadow: 0 3px 12px rgba(124,92,255,.3); }
+  #send:disabled { opacity: .45; cursor: default; box-shadow: none; }
+  #send svg, #stop svg { width: 14px; height: 14px; }
+  #stop { background: #4a2326; color: #ffd5d5; border: 1px solid #6e3338; display: none; }
+
+  /* ── 工具栏(后端/模型/思考/模式 + 附件/斜杠)── */
+  #attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  #attachments:empty { display: none; }
+  .att { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text);
+         background: var(--surface3); border: 1px solid var(--border2); border-radius: 7px; padding: 2px 7px; }
+  .att .x { cursor: pointer; color: var(--faint); }
+  .toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+  .tb-spacer { flex: 1; }
+  .tbtn { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--border2); background: var(--surface2);
+          color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+  .tbtn:hover { color: var(--text); border-color: var(--brand2); }
+  /* 右侧配置项:统一为一个分段控件容器,同高、无缝、细分隔线 */
+  .tb-group { display: inline-flex; align-items: center; height: 30px; background: var(--surface2);
+              border: 1px solid var(--border2); border-radius: 9px; overflow: hidden; }
+  .tb-group .tb-div { width: 1px; height: 16px; background: var(--border2); flex: 0 0 auto; }
+  .tb-group .seg, .tb-group .sel { height: 100%; background: transparent; border: none; color: var(--text);
+              font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center; }
+  .tb-group .seg { padding: 0 10px; gap: 5px; } .tb-group .seg:hover { background: var(--surface3); }
+  .tb-group .sel { padding: 0 6px; max-width: 130px; }
+  .tb-group .sel:hover { background: var(--surface3); } .tb-group .sel option { background: var(--surface); }
+  #tb-backend { font-weight: 600; } #tb-mode #mode-label { white-space: nowrap; }
+  #tb-fast.on { color: var(--brand1); border-color: var(--brand2); background: var(--surface3); font-weight: 600; }
+  #tb-fast.disabled { opacity: .4; pointer-events: none; }
+  #tb-backend::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--brand1); }
+
+  .popup { position: absolute; bottom: 64px; right: 12px; width: 290px; background: var(--surface2);
+           border: 1px solid var(--border2); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+           padding: 7px; z-index: 30; animation: rowIn .16s ease both; }
+  .popup.hidden { display: none; }
+  .popup.slash { left: 12px; right: auto; width: 320px; max-height: 280px; overflow-y: auto; bottom: 64px; }
+  .pop-title { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--faint);
+               padding: 4px 8px 7px; text-transform: uppercase; letter-spacing: .5px; }
+  .pop-hint { font-size: 10px; background: var(--surface3); border-radius: 5px; padding: 1px 6px; }
+  .pop-item { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; background: none;
+              border: none; color: var(--text); padding: 8px; border-radius: 9px; cursor: pointer; }
+  .pop-item:hover { background: var(--surface3); }
+  .pop-item.active { background: rgba(124,92,255,.1); }
+  .pop-item .pi-ic { width: 24px; height: 24px; border-radius: 7px; background: var(--surface3); display: grid;
+                     place-items: center; font-size: 13px; flex: 0 0 auto; }
+  .pop-item .pi-txt { flex: 1; } .pop-item .pi-txt b { display: block; font-size: 12.5px; }
+  .pop-item .pi-txt small { color: var(--muted); font-size: 11px; }
+  .pop-item .pi-chk { color: var(--ok); opacity: 0; } .pop-item.active .pi-chk { opacity: 1; }
+  .pop-item .pi-cmd { font-family: var(--mono); color: var(--brand1); font-size: 12px; }
+
+  /* ── 顶部 header 内的作者寄语 + 署名(与标题同一行)── */
+  header .motto { font-family: var(--mono); font-size: 10.5px; color: var(--muted);
+                  flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  header .motto .tk { color: var(--brand2); font-weight: 700; opacity: .85; }
+  header .motto em { font-style: normal; font-weight: 700;
+                     background: linear-gradient(135deg, var(--brand1), var(--user));
+                     -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  header .sig { flex: 0 0 auto; font-size: 11px; font-weight: 700; white-space: nowrap;
+                background: linear-gradient(135deg, var(--brand1), var(--user));
+                -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+</style>
+</head>
+<body>
+  <header>
+    <span class="brand" title="MATLAB Copilot · © 林南橘">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.2L22 12l-7.6 2.4L12 22l-2.4-7.6L2 12l7.6-2.4z"/></svg>
+    </span>
+    <div id="tabs-list"></div>
+    <button id="tab-add" title="新建会话标签页(双击标签可改名)">＋</button>
+    <div id="ctx-chip" title="当前上下文(悬停查看详情)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18M3 12h18M3 17h12"/></svg>
+      <span id="ctx-count">0</span>
+    </div>
+    <span class="status" id="statuswrap"><span class="sdot" id="sdot"></span><span id="status">连接中…</span></span>
+    <span id="cost-bar" class="cost-bar hidden" title="本次会话累计费用（仅 Claude Code 后端有数据）"></span>
+  </header>
+  <div id="ctx-pop"></div>
+  <div id="panes"></div>
+  <footer>
+    <div id="attachments"></div>
+    <div class="toolbar">
+      <button class="tbtn" id="tb-attach" title="添加本地文件作上下文">＋</button>
+      <button class="tbtn" id="tb-slash" title="斜杠命令">/</button>
+      <button class="tbtn" id="tb-theme" title="界面主题" data-tip="界面主题:Light 亮色 / Dark 暗色 / 随 MATLAB(跟随 MATLAB 当前明暗主题自动切换)。点击选择。">◑</button>
+      <button class="tbtn" id="tb-audit" title="变更记录" data-tip="变更记录(可追溯):列出本会话所有破坏性操作(改模型/跑代码/跑测试)的留痕——时间、工具、改了什么、成功与否。同时按天写入 ~/.matlab-copilot/audit-*.jsonl 持久存档。">📋</button>
+      <button class="tbtn" id="tb-export" title="导出当前对话为 Markdown 文件">⬇</button>
+      <span class="tb-spacer"></span>
+      <div class="tb-group">
+        <button class="seg" id="tb-backend" title="切换后端 Claude/Codex">Claude Code</button>
+        <span class="tb-div"></span>
+        <select class="sel" id="tb-model" title="模型"></select>
+        <span class="tb-div"></span>
+        <select class="sel" id="tb-effort" title="思考强度">
+          <option value="low">思考·低</option>
+          <option value="medium" selected>思考·中</option>
+          <option value="high">思考·高</option>
+        </select>
+        <span class="tb-div"></span>
+        <button class="seg mode" id="tb-mode" title="编辑模式"><span id="mode-label">✋ Ask before edits</span> ▾</button>
+        <span class="tb-div"></span>
+        <button class="seg" id="tb-fast" title="常驻后端:进程常驻,消除每轮冷启延迟(仅 Claude Code 后端;切换后下一轮生效)">⚡ 常驻</button>
+      </div>
+    </div>
+    <div class="quick">
+      <button id="btn-diagnose" data-tip="诊断报错：抓取 MATLAB/Simulink 最近一次报错 + 当前上下文(文件/模型/选中),让 Copilot 分析根本原因并给出修复步骤。直接点即可,无需在输入框打字。">🩺 诊断报错</button>
+      <button id="btn-explain" data-tip="解释选中(通用):解释你在编辑器里选中的 MATLAB 代码,或在 Simulink 里选中的 block;若什么都没选,则解释当前文件/模型的整体功能。看代码或快速了解整体时用它。">📖 解释选中</button>
+      <button id="btn-comment" data-tip="加注释:给编辑器里选中的 MATLAB 代码添加清晰的中文注释,保持逻辑和缩进不变,只返回加注释后的代码,方便你直接替换。">💬 加注释</button>
+      <button id="btn-test" data-tip="生成测试:为当前文件/选中代码或当前模型生成测试用例(MATLAB functiontests 或 Simulink Test),覆盖正常、边界、异常情况,并说明如何运行。">🧪 生成测试</button>
+      <button id="btn-check" data-tip="标准检查:对当前 Simulink 模型运行建模标准检查(Simulink Check / model_check),按严重程度汇总问题并给出修复建议。">✔ 标准检查</button>
+      <button id="btn-find" data-tip="查找模块:先在下方输入框描述你要找的模块(如『求和模块』『计算车速的增益』),再点此。Copilot 会在当前模型里语义定位最匹配的模块,在画布上橙色高亮并解释。">🔍 查找模块</button>
+      <button id="btn-explainblk" data-tip="解释模块(Simulink 深度):先在画布上选中一个或多个 block,再点此。Copilot 用 model_read 读取它们的真实参数,逐个精准说明作用、关键参数取值、输入输出与上下游连接、在模型里的角色。">🧩 解释模块</button>
+      <button id="btn-doc" data-tip="查文档:在下方输入框写函数/功能/报错(如『pid 控制器怎么用』『lsim』),再点此。Copilot 会抓取 MathWorks 官方文档页核实后作答,答案锚定真实文档内容并给出已验证的可点击链接,杜绝编造 API。">📖 查文档</button>
+      <button id="btn-tasks" data-tip="任务流(对标 Process Advisor):对当前模型按预定义管线逐阶段跑——编译/结构化诊断 → 标准检查 → Simulink Test → 汇总报告。自动探测本机能力(有 Process Advisor 付费件就用真的,没有就用等价管线兜底)。">⚙ 任务流</button>
+      <button id="btn-heal" data-tip="自愈运行:运行当前代码/模型验证,若报错则自动分析根因、修复、重新运行,最多迭代 3 次直到通过。每轮用「[验证 N/3]」标注进度,第 3 次仍失败会列出问题请你决策。">🔄 自愈运行</button>
+      <button id="btn-req" data-tip="需求追溯:梳理当前模型/代码的功能并生成需求条目草稿(ID/描述/来源/验证方法),标注每条需求对应的 block 路径,实现双向可追溯。有 Requirements Toolbox 时尝试读取已有需求并建立链接。输出 Markdown 表格可导入 ReqIF/Excel。">📋 需求追溯</button>
+      <button id="btn-codegen" data-tip="代码评审:对当前 MATLAB 文件或 Simulink 模型的生成代码做静态分析——函数复杂度、MISRA-C 风险(类型转换/溢出/除零)、向量化机会；有 Embedded Coder 时汇总代码规模与 RAM/ROM 估算。">🔬 代码评审</button>
+      <button id="btn-batch" data-tip="批量编辑:先在下方输入框用自然语言描述要批改的内容(如『给所有 Outport 加日志』『把所有 Sum 模块标红』『统一某子系统采样时间为 0.01』),再点此。Copilot 会在模型里定位所有目标 block,逐个 model_edit 批改——每处改动仍会弹确认,可逐个核对 diff。">🪄 批量编辑</button>
+      <button id="btn-testflow" data-tip="测试编排:一键跑完整测试闭环——生成测试用例 → 运行 → 汇总结果(通过/失败/覆盖率)。MATLAB 文件用 functiontests/runtests;Simulink 模型用 Simulink Test/model_test。运行测试会弹确认。区别于『生成测试』(只产代码不跑)。">🧪▶ 测试编排</button>
+      <button id="btn-capture" data-tip="截图分析:把当前 Simulink 模型画布导出为 PNG,发给 Copilot 用视觉能力分析——信号流结构、命名规范、未连接端口、可疑参数、布局可读性,并给出改进建议。需先在 MATLAB 里打开一个 Simulink 模型。">📸 截图分析</button>
+      <button id="btn-cursor" data-tip="生成到光标:在下方输入框写要生成的内容,点此让 Copilot 把生成的代码直接插入 MATLAB 编辑器当前光标处(兼容实时脚本 Live Editor)。">↳ 生成到光标</button>
+      <button id="btn-refresh" data-tip="刷新上下文:手动重新读取并刷新顶栏显示的当前文件/模型/选中 block/工作区变量/最近报错状态。切换了模型或选择后想让顶栏立刻更新时用它。">⟳ 刷新上下文</button>
+      <button id="btn-clear" data-tip="清屏:清空当前聊天记录的显示(不影响后端会话历史,也不会改动你的文件或模型)。">🗑 清屏</button>
+    </div>
+    <div class="inputrow">
+      <textarea id="input" placeholder="问点什么… (Enter 发送，Shift+Enter 换行，/ 斜杠命令，Ctrl+K 命令面板)"></textarea>
+      <button id="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>发送</button>
+      <button id="stop"><svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>停止</button>
+    </div>
+    <div id="modes-pop" class="popup hidden">
+      <div class="pop-title">编辑模式<span class="pop-hint">⇧ + Tab 切换</span></div>
+      <button class="pop-item" data-mode="ask"><span class="pi-ic">✋</span><div class="pi-txt"><b>Ask before edits</b><small>每次编辑前征求同意</small></div><span class="pi-chk">✓</span></button>
+      <button class="pop-item" data-mode="auto"><span class="pi-ic">‹/›</span><div class="pi-txt"><b>Edit automatically</b><small>改模型/写文件自动放行;运行代码仍会确认</small></div><span class="pi-chk">✓</span></button>
+      <button class="pop-item" data-mode="plan"><span class="pi-ic">▤</span><div class="pi-txt"><b>Plan mode</b><small>先探索并给出计划,暂不编辑</small></div><span class="pi-chk">✓</span></button>
+    </div>
+    <div id="slash-pop" class="popup hidden"></div>
+    <div id="theme-pop" class="popup hidden">
+      <div class="pop-title">界面主题</div>
+      <button class="pop-item" data-theme-choice="light"><span class="pi-ic">☀</span><div class="pi-txt"><b>Light</b><small>亮色</small></div><span class="pi-chk">✓</span></button>
+      <button class="pop-item" data-theme-choice="dark"><span class="pi-ic">🌙</span><div class="pi-txt"><b>Dark</b><small>暗色</small></div><span class="pi-chk">✓</span></button>
+      <button class="pop-item" data-theme-choice="auto"><span class="pi-ic">🖥</span><div class="pi-txt"><b>随 MATLAB</b><small>跟随 MATLAB 当前明暗主题</small></div><span class="pi-chk">✓</span></button>
+    </div>
+    <div id="audit-pop" class="popup hidden"></div>
+  </footer>
+  <div id="tip"></div>
+
+<script>
+// ── 内联 SVG 图标 ───────────────────────────────────────────────────────────
+const ICON = {
+  user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>',
+  agent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.2 6.4L20.6 12l-6.4 2.2L12 21l-2.2-6.8L3.4 12l6.4-2.6z"/></svg>',
+  brain: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3a3 3 0 0 0-3 3 3 3 0 0 0-1 5 3 3 0 0 0 2 5 3 3 0 0 0 5 1 3 3 0 0 0 5-1 3 3 0 0 0 2-5 3 3 0 0 0-1-5 3 3 0 0 0-3-3 3 3 0 0 0-3 1 3 3 0 0 0-3-1z"/><path d="M12 5v14"/></svg>',
+  tool: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.3-.6-.6-2.3z"/></svg>',
+  skill: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.2L22 10l-6 4.5L18 22l-6-4-6 4 2-7.5L2 10l7.6-.8z"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
+  bash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  err: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>',
+};
+
+// ── uihtml 事件桥契约:MATLAB 会调用全局 setup(htmlComponent) ───────────────
+let MC = null; // htmlComponent
+function setup(htmlComponent) {
+  MC = htmlComponent;
+  htmlComponent.addEventListener('sidecar', function (e) {
+    let data = e.Data;
+    if (typeof data === 'string') { try { data = JSON.parse(data); } catch (err) { return; } }
+    onSidecar(data);
+  });
+  toMatlab('ui_ready', {});
+}
+// 所有 UI→MATLAB 事件默认带当前活动标签 convId(全局事件 MATLAB 会忽略它,后端事件据此路由);
+// data 里若显式给了 convId(如关闭别的标签)则以 data 为准。
+function toMatlab(name, data) { if (MC) { try { MC.sendEventToMATLAB(name, { convId: activeConv, ...(data || {}) }); } catch (err) {} } }
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+// ── 多标签页状态 ────────────────────────────────────────────────────────────
+// 每个标签页一套独立状态(消息DOM/气泡/思考/busy/配置/审计)。全局 messages/bubbles/
+// thinks/config/auditLog 始终「指向」当前渲染目标那一套(按 convId 切换),这样海量已有
+// 渲染代码无需改动,只在处理每条事件/动作前把指针指对即可。
+const tabs = {};            // convId -> tab
+let activeConv = 'main';
+let tabSeq = 1;
+let messages, bubbles, thinks;   // 当前渲染目标(指向某 tab 的 pane/bubbles/thinks)
+let config = null, auditLog = null;  // 始终指向「当前活动标签」的配置/审计(切换标签时重指)
+let busy = false;          // = 当前活动标签的 busy(发送/停止按钮用)
+let uid = 0;
+const nextId = () => 'u' + (++uid);
+
+const WELCOME_HTML = '<div class="welcome"><div class="w-logo">✦</div><div class="w-title">MATLAB Copilot</div>' +
+  '<div class="w-motto">Code is cheap, <em>Show me your Harness!</em></div><div class="w-sig">© 林南橘</div></div>';
+function makeTabState(convId, name) {
+  const pane = document.createElement('div');
+  pane.className = 'pane'; pane.dataset.conv = convId;
+  pane.innerHTML = WELCOME_HTML;
+  $('panes').appendChild(pane);
+  const t = { convId, name, pane, bubbles: {}, thinks: {}, busy: false,
+              config: { backend: 'claude', model: null, effort: 'medium', mode: 'ask' }, auditLog: [], history: [], costUsd: 0 };
+  tabs[convId] = t;
+  return t;
+}
+function clearWelcome() { if (messages) { const w = messages.querySelector('.welcome'); if (w) w.remove(); } }
+function getTab(convId) { return tabs[convId || 'main'] || makeTabState(convId || 'main', '会话 1'); }
+function activeTab() { return tabs[activeConv]; }
+// 把全局渲染指针指向某标签页(纯 DOM/状态目标,不动工具栏/输入)。
+function useRender(convId) { const t = getTab(convId); messages = t.pane; bubbles = t.bubbles; thinks = t.thinks; return t; }
+
+// ── 会话落盘持久化 + 按项目恢复 ────────────────────────────────────────────────
+// 只持久化「用户消息 + 助手最终回答」两类核心内容(渲染后的 HTML),不存 tool/thinking 卡片。
+// 按项目(cwd/工程根)分 key;预览模式用 'default'。恢复纯展示——后端上下文已随重启重置。
+let projectKey = null, restoring = false, saveTimer = null;
+function sessionStoreKey() { return 'mc-session-' + (projectKey || 'default'); }
+function curRenderTab() { return messages ? tabs[messages.dataset.conv] : null; }
+function recordHist(role, html, raw) {
+  if (restoring) return;                  // 恢复重建期间不重复记录
+  const t = curRenderTab();
+  if (!t || t.isFork) return;             // fork 子会话的 pane 不在 tabs 里 → 自动跳过
+  // assistant 额外存原始 markdown(raw),供导出时保留结构;user 只存渲染后 html。
+  t.history.push(raw !== undefined ? { role, html, raw } : { role, html });
+  scheduleSave();
+}
+function scheduleSave() {
+  if (projectKey === null) return;        // 未确定项目前不存(避免存到错的 key 再迁移)
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSession, 600);
+}
+const HISTORY_CAP = 400;   // 每个标签页最多持久化的消息条数(保留最近的,防止无限增长撑爆 localStorage)
+function saveSession() {
+  if (projectKey === null) return;   // 未确定项目前不存(beforeunload/清屏等直接调用时的兜底)
+  try {
+    let tabsData = Object.values(tabs).filter((t) => !t.isFork && t.history.length)
+      .map((t) => ({ convId: t.convId, name: t.name,
+        history: t.history.length > HISTORY_CAP ? t.history.slice(-HISTORY_CAP) : t.history }));
+    if (!tabsData.length) { localStorage.removeItem(sessionStoreKey()); return; }
+    // 超额(QuotaExceeded)时逐轮裁掉每 tab 最旧的一半再重试,避免大会话整存失败。
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        localStorage.setItem(sessionStoreKey(), JSON.stringify({ savedAt: Date.now(), activeConv, tabs: tabsData }));
+        return;
+      } catch (e) {
+        tabsData = tabsData.map((t) => ({ ...t, history: t.history.slice(-Math.ceil(t.history.length / 2)) }))
+          .filter((t) => t.history.length);
+        if (!tabsData.length) { setStatus('历史过大，本次未能保存'); return; }
+      }
+    }
+    setStatus('历史过大，仅保存了部分会话记录');   // 4 轮裁剪后仍超额:不再静默丢数据
+  } catch (e) {}
+}
+// 首次拿到上下文(或预览模式启动)时确定 projectKey 并恢复一次。
+function ensureProjectKey(ctx) {
+  if (projectKey !== null) return;
+  const root = ctx && ctx.projectInfo && ctx.projectInfo.root;
+  projectKey = root ? String(root) : 'default';
+  restoreSession();
+}
+function restoreSession() {
+  let data;
+  try { data = JSON.parse(localStorage.getItem(sessionStoreKey()) || 'null'); } catch (e) {}
+  if (!data || !Array.isArray(data.tabs) || !data.tabs.length) return;
+  restoring = true;
+  try {
+    data.tabs.forEach((sav, i) => {
+      // 推进 tabSeq 越过已恢复的编号,否则后续 newTab 生成 t2/t3 会撞键覆盖恢复出的标签。
+      const n = parseInt(String(sav.convId).replace(/^t/, ''), 10);
+      if (Number.isFinite(n) && n > tabSeq) tabSeq = n;
+      const t = getTab(sav.convId);       // main 已存在,其余新建
+      t.name = sav.name || t.name;
+      useRender(t.convId);
+      const w = t.pane.querySelector('.welcome'); if (w) w.remove();
+      addRestoreDivider();
+      // assistant 用原始 markdown 重渲染(保留 raw 供导出);user 用存好的 html。兼容旧数据。
+      for (const m of (sav.history || [])) {
+        if (m.role === 'assistant' && m.raw !== undefined) addRow('assistant', renderMd(m.raw));
+        else addRow(m.role, m.html || '');
+      }
+      t.history = (sav.history || []).slice();
+    });
+    if (data.activeConv && tabs[data.activeConv]) switchTab(data.activeConv);
+    renderTabs();
+    setStatus('已恢复上次会话历史');
+  } catch (e) {}
+  restoring = false;
+}
+function addRestoreDivider() {
+  const div = document.createElement('div');
+  div.className = 'restore-divider';
+  div.textContent = '⤴ 历史记录（后端上下文已重置，可继续提问）';
+  messages.appendChild(div);
+}
+
+function setStatus(t) { $('status').textContent = t; }
+function scrollDown() { if (messages) messages.scrollTop = messages.scrollHeight; }
+function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+
+// ── 轻量 Markdown 渲染器(自包含、无 CDN、流式安全)──────────────────────────
+const Z0 = String.fromCharCode(0xE000), Z1 = String.fromCharCode(0xE001);
+const RE_BLOCK = new RegExp('^' + Z0 + '(\\d+)' + Z0 + '$');
+const RE_CODE = new RegExp(Z1 + '(\\d+)' + Z1, 'g');
+
+function mdInline(escaped) {
+  let out = escaped;
+  const codes = [];
+  out = out.replace(/`([^`\n]+)`/g, (m, c) => { codes.push(c); return Z1 + (codes.length - 1) + Z1; });
+  out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => '<a href="' + u + '" target="_blank" rel="noopener">' + t + '</a>');
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  out = out.replace(/(^|[^_\w])_([^_\n]+)_/g, '$1<em>$2</em>');
+  out = out.replace(/(^|[^"=>\w])(https?:\/\/[^\s<]+)/g, (m, pre, u) => pre + '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>');
+  out = out.replace(RE_CODE, (m, i) => '<code>' + codes[+i] + '</code>');
+  return out;
+}
+function codeBlock(lang, code) {
+  const head = '<div class="cb-head"><span class="dotrow"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span>' + escapeHtml(lang || 'code') + '</div>';
+  return '<div class="codeblock">' + head + '<pre class="code">' + escapeHtml(code.replace(/\n$/, '')) + '</pre></div>';
+}
+function renderMd(text) {
+  // 剥掉「查找模块」用的高亮标记 <<HILITE: 路径>>(面板用它原生高亮,用户不可见)。
+  text = String(text).replace(/<<HILITE:[\s\S]*?>>/g, '');
+  const blocks = [];
+  const stash = (lang, code) => { blocks.push(codeBlock(lang, code)); return '\n' + Z0 + (blocks.length - 1) + Z0 + '\n'; };
+  let s = String(text).replace(/```[ \t]*([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g, (m, lang, code) => stash(lang, code));
+  s = s.replace(/```[ \t]*([a-zA-Z0-9_+-]*)\n?([\s\S]*)$/, (m, lang, code) => stash(lang, code));
+  const lines = s.split('\n');
+  let html = '', para = [], listType = null, items = [], quote = [], table = [];
+  const fp = () => { if (para.length) { html += '<p>' + para.map((l) => mdInline(escapeHtml(l))).join('<br>') + '</p>'; para = []; } };
+  const fl = () => {
+    if (!items.length) return;
+    if (listType === 'todo') {
+      html += '<ul class="todo-list">' + items.map((it) => {
+        const chk = it.checked;
+        return '<li class="todo-item"><label>' +
+          '<input type="checkbox"' + (chk ? ' checked' : '') + ' class="todo-cb">' +
+          '<span class="' + (chk ? 'todo-done' : '') + '">' + mdInline(escapeHtml(it.text)) + '</span></label></li>';
+      }).join('') + '</ul>';
+    } else {
+      html += '<' + listType + '>' + items.map((it) =>
+        '<li>' + mdInline(escapeHtml(typeof it === 'object' ? it.text : it)) + '</li>'
+      ).join('') + '</' + listType + '>';
+    }
+    items = []; listType = null;
+  };
+  const fq = () => { if (quote.length) { html += '<blockquote>' + quote.map((l) => mdInline(escapeHtml(l))).join('<br>') + '</blockquote>'; quote = []; } };
+  const ft = () => {
+    if (!table.length) return;
+    const cells = (r) => r.replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+    let t = '<table>';
+    table.forEach((row, i) => { if (i === 1 && /^\s*\|?[ :|-]+\|?\s*$/.test(row)) return; const tag = i === 0 ? 'th' : 'td'; t += '<tr>' + cells(row).map((c) => '<' + tag + '>' + mdInline(escapeHtml(c)) + '</' + tag + '>').join('') + '</tr>'; });
+    html += t + '</table>'; table = [];
+  };
+  const fa = () => { fp(); fl(); fq(); ft(); };
+  for (const line of lines) {
+    let m;
+    if (m = line.match(RE_BLOCK)) { fa(); html += blocks[+m[1]]; continue; }
+    if (/^\s*$/.test(line)) { fa(); continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) { fp(); fl(); fq(); table.push(line); continue; }
+    ft();
+    if (m = line.match(/^(#{1,6})\s+(.*)$/)) { fa(); const n = m[1].length; html += '<h' + n + '>' + mdInline(escapeHtml(m[2])) + '</h' + n + '>'; continue; }
+    if (/^\s*(---|\*\*\*|___)\s*$/.test(line)) { fa(); html += '<hr>'; continue; }
+    if (m = line.match(/^>\s?(.*)$/)) { fp(); fl(); quote.push(m[1]); continue; }
+    if (m = line.match(/^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/)) { fp(); fq(); if (listType !== 'todo') { fl(); listType = 'todo'; } items.push({checked: m[1].toLowerCase() === 'x', text: m[2]}); continue; }
+    if (m = line.match(/^\s*[-*+]\s+(.*)$/)) { fp(); fq(); if (listType !== 'ul') { fl(); listType = 'ul'; } items.push(m[1]); continue; }
+    if (m = line.match(/^\s*\d+\.\s+(.*)$/)) { fp(); fq(); if (listType !== 'ol') { fl(); listType = 'ol'; } items.push(m[1]); continue; }
+    fl(); fq(); para.push(line);
+  }
+  fa();
+  return html;
+}
+function renderPlain(text) { return mdInline(escapeHtml(String(text))).replace(/\n/g, '<br>'); }
+
+// ── 消息构建(头像 + 气泡)──────────────────────────────────────────────────
+function addRow(role, html) {
+  clearWelcome();
+  const row = document.createElement('div');
+  row.className = 'row ' + role;
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar ' + role;
+  avatar.innerHTML = role === 'user' ? ICON.user : ICON.agent;
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble ' + role;
+  bubble.innerHTML = html;
+  if (role === 'user') { row.appendChild(bubble); row.appendChild(avatar); }
+  else { row.appendChild(avatar); row.appendChild(bubble); }
+  messages.appendChild(row);
+  if (role === 'user') recordHist('user', html);   // 用户消息(含按钮动作)落历史
+  scrollDown();
+  return bubble; // 内容容器
+}
+function addMsg(cls, html) {
+  if (cls === 'error') {
+    clearWelcome();
+    const el = document.createElement('div');
+    el.className = 'banner error';
+    el.innerHTML = ICON.err + '<div>' + html + '</div>';
+    messages.appendChild(el); scrollDown(); return el;
+  }
+  return addRow(cls, html);
+}
+
+// 复制文本:优先让 MATLAB 用 clipboard('copy') 复制(webview 剪贴板常受限),回退浏览器 API。
+function copyText(text) {
+  if (MC) { toMatlab('copy_text', { text: String(text) }); setStatus('已复制'); return; }
+  try { navigator.clipboard.writeText(String(text)); setStatus('已复制'); } catch (e) { setStatus('复制失败'); }
+}
+// 给一个输入框绑「粘贴图片(截图)→ base64 → attach_image」(主输入框和 Fork 输入框共用)。
+function bindImagePaste(el) {
+  el.addEventListener('paste', (e) => {
+    const items = (e.clipboardData && e.clipboardData.items) || [];
+    for (const it of items) {
+      if (it.type && it.type.indexOf('image') === 0) {
+        const blob = it.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          const reader = new FileReader();
+          reader.onload = () => {
+            const ext = (it.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+            toMatlab('attach_image', { name: '粘贴图片.' + ext, dataUrl: String(reader.result) });
+            setStatus('已粘贴图片,发送时一并带上');
+          };
+          reader.readAsDataURL(blob);
+        }
+        return;
+      }
+    }
+  });
+}
+// 给一个气泡挂操作按钮行(buttons: [{label,cls,on}])。
+function attachActions(bubble, buttons) {
+  const bar = document.createElement('div');
+  bar.className = 'msg-actions';
+  buttons.forEach((b) => {
+    const el = document.createElement('button');
+    el.className = 'ma-btn'; el.innerHTML = b.label;
+    el.onclick = b.on;
+    bar.appendChild(el);
+  });
+  bubble.appendChild(bar);
+  return bar;
+}
+// 用户消息(带「✎ 编辑」:撤回此条及其后所有消息,把原文回填输入框重发)。
+function addUserMessage(text) {
+  const bubble = addRow('user', renderPlain(text));
+  attachActions(bubble, [{ label: '✎ 编辑', on: () => resetToEdit(bubble.parentNode, text) }]);
+  return bubble;
+}
+function resetToEdit(row, text) {
+  useRender(activeConv);
+  toMatlab('interrupt', {}); setBusy(false, activeConv);
+  // 删掉此条及其后的所有消息行(在当前活动标签的 pane 内)。
+  while (row && row.nextSibling) messages.removeChild(row.nextSibling);
+  if (row) messages.removeChild(row);
+  const inp = $('input');
+  inp.value = text; inp.focus();
+  inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
+  setStatus('已撤回，改完再发送');
+}
+// 给完成的助手气泡挂「⧉ 复制」。
+function addBubbleActions(id) {
+  const b = bubbles[id];
+  if (!b || !b.el || b.el.querySelector('.msg-actions')) return;
+  attachActions(b.el, [
+    { label: '⧉ 复制', on: () => copyText(b.raw) },
+    { label: '⑂ Fork', on: () => startFork(b) },
+  ]);
+}
+
+// Fork:在该卡片内开一条「以本卡片内容为种子」的独立子会话,回答嵌在卡片里。
+let forkSeq = 0;
+function makeForkState(convId, paneEl) {
+  const t = { convId, name: convId, pane: paneEl, bubbles: {}, thinks: {}, busy: false,
+              config: Object.assign({}, activeTab() ? activeTab().config : {}), auditLog: [], isFork: true, sendBtn: null };
+  tabs[convId] = t;
+  return t;
+}
+function startFork(parent) {
+  if (!parent || !parent.el || parent.el.querySelector('.fork-zone')) return;  // 每卡片一个分支区
+  const parentRaw = parent.raw;
+  const convId = 'fork-' + (++forkSeq);
+  const zone = document.createElement('div');
+  zone.className = 'fork-zone';
+  zone.innerHTML = '<div class="fork-head">⑂ 分支讨论(基于本回答,独立上下文)</div><div class="fork-msgs"></div>' +
+    '<div class="fork-input-row"><textarea class="fork-input" rows="1" placeholder="基于这条回答继续提需求…(Enter 发送)"></textarea><button class="fork-send">发送</button></div>';
+  parent.el.appendChild(zone);
+  const fs = makeForkState(convId, zone.querySelector('.fork-msgs'));
+  const inp = zone.querySelector('.fork-input');
+  const btn = zone.querySelector('.fork-send');
+  fs.sendBtn = btn;
+  let seeded = false;
+  const doSend = () => {
+    const text = inp.value.trim();
+    if (fs.busy) return;
+    if (!text && !attachCount) return;        // 无文本也无附件才拦(支持只发图)
+    inp.value = ''; inp.style.height = 'auto';
+    useRender(convId);
+    addMsg('user', renderPlain(text || '（见附件）'));   // 分支里的用户气泡
+    setBusy(true, convId);
+    const body = text || '请查看我附加的图片/文件。';
+    const payload = seeded ? body
+      : ('以下是你之前的一个回答,我要基于它继续/扩展讨论:\n\n' + parentRaw + '\n\n我的新需求:' + body);
+    seeded = true;
+    toMatlab('user_message', { id: nextId(), text: payload, convId });
+  };
+  btn.onclick = doSend;
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
+  inp.addEventListener('input', (e) => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 80) + 'px'; });
+  bindImagePaste(inp);   // Fork 输入框也支持粘贴图片
+  inp.focus(); scrollDown();
+}
+
+function ensureBubble(id) {
+  if (bubbles[id]) return bubbles[id];
+  const el = addRow('assistant', '');
+  el.classList.add('streaming');
+  bubbles[id] = { el, raw: '' };
+  return bubbles[id];
+}
+
+function ensureThink(id) {
+  if (thinks[id]) return thinks[id];
+  const el = document.createElement('div');
+  el.className = 'think thinking';
+  el.innerHTML = '<div class="th-head">' + ICON.brain + '<span class="th-label">思考过程</span><span class="th-caret">▾</span></div><div class="th-body"></div>';
+  el.querySelector('.th-head').onclick = () => el.classList.toggle('collapsed');
+  messages.appendChild(el); scrollDown();
+  thinks[id] = { el, body: el.querySelector('.th-body'), label: el.querySelector('.th-label'), raw: '' };
+  return thinks[id];
+}
+
+// ── 工具/技能分类 ────────────────────────────────────────────────────────────
+function classifyTool(name) {
+  const n = String(name);
+  if (n === 'Skill' || /skill/i.test(n)) return { kind: 'skill', icon: ICON.skill, tag: '技能', label: n.replace(/^mcp__/, '').replace(/__/g, ' · ') };
+  if (n.startsWith('mcp__')) return { kind: 'tool', icon: ICON.tool, tag: 'MCP', label: n.replace(/^mcp__/, '').replace(/__/g, ' · ') };
+  if (/^(Bash|Shell)$/.test(n)) return { kind: 'bash', icon: ICON.bash, tag: '终端', label: n };
+  if (/^(Read|Write|Edit|MultiEdit|Glob|Grep|NotebookEdit)$/.test(n)) return { kind: 'file', icon: ICON.file, tag: '文件', label: n };
+  return { kind: 'tool', icon: ICON.tool, tag: '工具', label: n };
+}
+
+// ── 处理 sidecar → UI 事件 ──────────────────────────────────────────────────
+function onSidecar(msg) {
+  if (!msg || !msg.type) return;
+  // 全局事件(不属于某个标签页):能力/上下文/主题/附件。
+  switch (msg.type) {
+    case 'ready': setStatus('已就绪'); $('sdot').className = 'sdot live'; return;
+    case 'context': renderContext(msg.context); return;
+    case 'theme': if (themeChoice === 'auto') paintTheme(msg.mode === 'light' ? 'light' : 'dark'); return;
+    case 'capabilities': applyCaps(msg); return;
+    case 'attachments': renderAttachments(msg.files); return;
+  }
+  // 标签页相关事件:把渲染指针指向该会话的 pane,状态/busy 只在它是当前活动标签时影响顶栏。
+  const cid = msg.convId || 'main';
+  useRender(cid);
+  const onActive = (cid === activeConv);
+  switch (msg.type) {
+    case 'status': if (onActive) setStatus(msg.text === 'thinking' ? '思考中…' : (msg.text || '')); if (msg.text === 'thinking') setBusy(true, cid); break;
+    case 'thinking_start': ensureThink(msg.id); if (onActive) setStatus('思考中…'); break;
+    case 'thinking_delta': { const t = ensureThink(msg.id); t.raw += msg.text || ''; t.body.innerHTML = renderMd(t.raw); scrollDown(); break; }
+    case 'thinking_stop': { const t = thinks[msg.id]; if (t) { t.el.classList.remove('thinking'); t.el.classList.add('collapsed'); t.label.textContent = '思考过程（点击展开）'; } break; }
+    case 'assistant_start': { const el = addRow('assistant', ''); el.classList.add('streaming'); bubbles[msg.id] = { el, raw: '' }; break; }
+    case 'assistant_delta': { const b = ensureBubble(msg.id); b.raw += msg.text || ''; b.el.innerHTML = renderMd(b.raw); scrollDown(); break; }
+    case 'assistant_stop': { const b = bubbles[msg.id]; if (b) { b.el.classList.remove('streaming'); addBubbleActions(msg.id); recordHist('assistant', renderMd(b.raw), b.raw); } break; }
+    case 'tool_use': addToolCard(msg); break;
+    case 'tool_result': updateToolCard(msg); break;
+    case 'permission_request': addPermission(msg); break;
+    case 'result': setBusy(false, cid); if (msg.costUsd != null) updateCostBar(msg.costUsd, cid); if (onActive) setStatus(msg.ok ? '完成' : '出错'); break;
+    case 'error': addMsg('error', escapeHtml(msg.message || '未知错误')); setBusy(false, cid); break;
+    case 'user_echo': addMsg('user', escapeHtml(msg.text || '')); setBusy(true, cid); break;
+    case 'diagnostics': renderDiagnostics(msg.items); break;
+    case 'audit': onAudit(msg.entry); break;
+    case 'config_changed': onConfigChanged(msg.convId, msg.config); break;
+    default: break;
+  }
+}
+
+function addToolCard(msg) {
+  const c = classifyTool(msg.name);
+  const el = document.createElement('div');
+  el.className = 'tool run kind-' + c.kind;
+  el.id = 'tool-' + (msg.convId || 'main') + '-' + msg.id;
+  el.innerHTML =
+    '<div class="head"><span class="ticon">' + c.icon + '</span>' +
+    '<span><span class="kindtag">' + c.tag + '</span><br><span class="name">' + escapeHtml(c.label) + '</span></span>' +
+    '<span class="pill"><span class="spin"></span>运行中</span></div>' +
+    '<div class="body"><div class="lbl">输入</div><pre>' + escapeHtml(JSON.stringify(msg.input, null, 2)) + '</pre></div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+function updateToolCard(msg) {
+  const el = document.getElementById('tool-' + (msg.convId || 'main') + '-' + msg.id);
+  if (!el) return;
+  el.classList.remove('run');
+  el.classList.add(msg.ok ? 'ok' : 'fail');
+  el.querySelector('.pill').innerHTML = msg.ok ? '✓ 完成' : '✕ 失败';
+  if (msg.summary) {
+    const body = el.querySelector('.body');
+    const lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = '结果';
+    const pre = document.createElement('pre'); pre.textContent = msg.summary;
+    body.appendChild(lbl); body.appendChild(pre);
+  }
+}
+
+function addPermission(msg) {
+  const el = document.createElement('div');
+  el.className = 'perm';
+  const label = diffLabel(msg.diff);
+  const bodyHtml = msg.diff
+    ? renderDiff(msg.diff)
+    : '<pre>' + escapeHtml(JSON.stringify(msg.input, null, 2)) + '</pre>';
+  el.innerHTML =
+    '<div class="q">' + ICON.warn +
+    '<span>' + label + '<span class="tool-name">' + escapeHtml(msg.tool) + '</span></span></div>' +
+    bodyHtml +
+    '<div class="btns"><button class="allow">✓ 允许</button><button class="deny">✕ 拒绝</button></div>';
+  el.querySelector('.allow').onclick = () => respondPerm(el, msg.convId, msg.id, true);
+  el.querySelector('.deny').onclick = () => respondPerm(el, msg.convId, msg.id, false);
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+function diffLabel(diff) {
+  if (!diff) return '即将执行可能有副作用的操作：';
+  return { model_edit: '即将修改 Simulink 模型：', code_exec: '即将执行 MATLAB 代码：',
+           file_run: '即将运行脚本文件：', model_test: '即将运行模型测试：' }[diff.type] || '即将执行：';
+}
+function renderDiff(diff) {
+  switch (diff.type) {
+    case 'model_edit': {
+      const modelLine = diff.model
+        ? '<div class="diff-model">模型: <code>' + escapeHtml(diff.model) + '</code></div>' : '';
+      const rows = diff.changes.map(c =>
+        '<tr><td class="diff-block" title="' + escapeHtml(c.block) + '">' + escapeHtml(shortBlock(c.block)) + '</td>' +
+        '<td class="diff-param">' + escapeHtml(c.param) + '</td>' +
+        '<td class="diff-new">' + escapeHtml(c.value) + '</td></tr>'
+      ).join('');
+      return modelLine +
+        '<table class="diff-table"><thead><tr><th>块路径</th><th>参数</th><th>→ 新值</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+    }
+    case 'code_exec':
+      return '<pre class="diff-code">' + escapeHtml(diff.code) + '</pre>';
+    case 'file_run':
+      return '<div class="diff-file">📄 ' + escapeHtml(diff.file) +
+             (diff.args ? '  ' + escapeHtml(diff.args) : '') + '</div>';
+    case 'model_test':
+      return '<div class="diff-file">🧪 ' + escapeHtml(diff.model) + '</div>';
+    default:
+      return '<pre>' + escapeHtml(JSON.stringify(diff, null, 2)) + '</pre>';
+  }
+}
+function shortBlock(p) {
+  const parts = String(p).split('/');
+  return parts.length > 3 ? '…/' + parts.slice(-2).join('/') : p;
+}
+function respondPerm(el, convId, id, approved) {
+  toMatlab('permission_response', { convId: convId || activeConv, id, approved });
+  el.classList.add('resolved');
+  el.querySelector('.q span:last-child').insertAdjacentText('beforeend', approved ? '（已允许）' : '（已拒绝）');
+}
+
+// MATLAB 把单元素 string 数组编码成标量字符串,这里统一强制成数组再计数。
+function toArr(x) { return Array.isArray(x) ? x : (x === undefined || x === null || x === '') ? [] : [x]; }
+function baseName(p) { return String(p).split(/[\\/]/).pop(); }
+function leaf(s) { return String(s).split('/').pop(); }
+function ctxRow(k, v) { return '<div class="ctx-row"><b>' + k + '</b><span>' + v + '</span></div>'; }
+
+// 结构化诊断卡片(对标官方诊断查看器:按严重度 + 每条可跳转高亮对应 block)。
+function renderDiagnostics(items) {
+  items = toArr(items);
+  if (!items.length) return;
+  const sev = (s) => ({ error: { ic: '⛔', c: 'err' }, warning: { ic: '⚠', c: 'warn' }, info: { ic: 'ℹ', c: 'info' } }[String(s || 'error').toLowerCase()] || { ic: '⛔', c: 'err' });
+  const rows = items.map((d) => {
+    const s = sev(d.severity);
+    const jump = d.block ? '<button class="diag-jump" data-blk="' + escapeHtml(d.block) + '">🎯 高亮 ' + escapeHtml(leaf(d.block)) + '</button>' : '';
+    return '<div class="diag-row ' + s.c + '"><span class="diag-ic">' + s.ic + '</span><div class="diag-b"><div class="diag-msg">' +
+      escapeHtml(d.message || '') + '</div>' + (d.id ? '<code class="diag-id">' + escapeHtml(d.id) + '</code>' : '') + jump + '</div></div>';
+  }).join('');
+  const card = document.createElement('div');
+  card.className = 'diagcard';
+  card.innerHTML = '<div class="diag-head">🩺 结构化诊断 · ' + items.length + ' 条</div>' + rows;
+  clearWelcome(); messages.appendChild(card);
+  card.querySelectorAll('.diag-jump').forEach((b) => b.onclick = () => { toMatlab('jump_block', { path: b.dataset.blk }); setStatus('已高亮: ' + leaf(b.dataset.blk)); });
+  scrollDown();
+}
+
+// 操作审计轨迹(可追溯,每个标签页各一份):累积破坏性操作留痕,「📋 变更记录」弹窗可查。
+function onAudit(entry) {
+  if (!entry || !entry.id) return;
+  const log = getTab(entry.convId).auditLog;
+  const i = log.findIndex((a) => a.id === entry.id);
+  if (i >= 0) log[i] = entry; else log.push(entry);
+  if (entry.convId === activeConv && !$('audit-pop').classList.contains('hidden')) renderAudit();
+}
+function friendlyTool(name) { return String(name || '').replace(/^mcp__[^_]+__/, '').replace(/^mcp__\w+__/, ''); }
+function renderAudit() {
+  const pop = $('audit-pop');
+  const st = { ok: '✓', failed: '✕', executed: '•' };
+  const stc = { ok: 'var(--ok)', failed: 'var(--err)', executed: 'var(--warn)' };
+  const rows = auditLog.slice().reverse().map((a) => {
+    const t = (a.time || '').slice(11, 19);
+    return '<div class="audit-row"><span class="audit-st" style="color:' + (stc[a.status] || 'var(--muted)') + '">' + (st[a.status] || '•') + '</span>' +
+      '<div class="audit-b"><span class="audit-tool">' + escapeHtml(friendlyTool(a.tool)) + '</span> ' +
+      '<span class="audit-time">' + escapeHtml(t) + (a.mode ? ' · ' + escapeHtml(a.mode) : '') + '</span>' +
+      '<div class="audit-act">' + escapeHtml(a.action || '') + '</div></div></div>';
+  }).join('');
+  pop.innerHTML = '<div class="pop-title">变更记录<span class="pop-hint">' + auditLog.length + '</span></div>' +
+    (auditLog.length ? rows : '<div class="audit-empty">本会话暂无破坏性操作</div>');
+}
+
+let lastCtxKey = '';
+function renderContext(ctx) {
+  ctx = ctx || {};
+  ensureProjectKey(ctx);          // 首次拿到上下文 → 定项目 key 并恢复历史
+  const af = ctx.activeFile || {};
+  const model = ctx.currentModel || '';
+  const sub = ctx.currentSubsystem || '';
+  const blocks = toArr(ctx.selectedBlocks);
+  const vars = toArr(ctx.workspaceVars);
+
+  // 计数 = 有内容的上下文「类别」数(文件/模型/选中块/工作区/报错),展示在图标上。
+  let count = (af.path ? 1 : 0) + (model ? 1 : 0) + (blocks.length ? 1 : 0) + (vars.length ? 1 : 0) + (ctx.lastError ? 1 : 0);
+  $('ctx-count').textContent = count;
+  $('ctx-chip').title = count ? '当前上下文 ' + count + ' 项(悬停查看)' : '暂无上下文';
+
+  // 仅内容变化时闪一下图标。
+  const key = JSON.stringify([af.path, af.line, model, sub, blocks, vars.length, !!ctx.lastError]);
+  if (key !== lastCtxKey) {
+    lastCtxKey = key;
+    const chip = $('ctx-chip'); chip.classList.remove('flash'); void chip.offsetWidth; chip.classList.add('flash');
+  }
+
+  // 悬停气泡里的明细。
+  const d = ['<div class="cp-title">当前上下文 · ' + count + ' 项</div>'];
+  if (af.path) d.push(ctxRow('文件', escapeHtml((af.name || baseName(af.path)) + (af.line ? ':L' + af.line : '')) + (af.selection ? ' · 选中 ' + String(af.selection).length + ' 字符' : '')));
+  if (model) d.push(ctxRow('模型', escapeHtml(model)));
+  if (sub && sub !== model) d.push(ctxRow('子系统', escapeHtml(sub)));
+  if (blocks.length) d.push(ctxRow('选中 block', blocks.map((b) => escapeHtml(leaf(b))).join('、')));
+  if (vars.length) {
+    const names = vars.slice(0, 12).map((v) => escapeHtml(String(v).split(' ')[0])).join(', ');
+    d.push(ctxRow('工作区', vars.length + ' 个:' + names + (vars.length > 12 ? ' …' : '')));
+  }
+  if (ctx.lastError) d.push(ctxRow('最近报错', escapeHtml(String(ctx.lastError).split('\n')[0]).slice(0, 240)));
+  if (d.length === 1) d.push('<div class="ctx-row"><span>无可用上下文</span></div>');
+  $('ctx-pop').innerHTML = d.join('');
+}
+
+// ── UI → MATLAB 动作 ────────────────────────────────────────────────────────
+function setBusy(b, conv) {
+  const t = getTab(conv || activeConv);
+  t.busy = b;
+  // 分支(fork)的忙状态:禁用其发送按钮即可。
+  if (t.isFork) { if (t.sendBtn) t.sendBtn.disabled = b; return; }
+  // 标签页上的忙指示。
+  const tabEl = $('tabs-list') && $('tabs-list').querySelector('.tab[data-conv="' + t.convId + '"]');
+  if (tabEl) tabEl.classList.toggle('busy', b);
+  // 只有当前活动标签的忙状态驱动发送/停止/状态点。
+  if (t.convId === activeConv) {
+    busy = b;
+    $('send').disabled = b;
+    $('stop').style.display = b ? 'inline-flex' : 'none';
+    $('sdot').className = 'sdot ' + (b ? 'busy' : 'live');
+  }
+}
+// ── 成本追踪 ──────────────────────────────────────────────────────────────
+// 费用按标签页累计(挂在 tab 上),成本条只显示当前活动标签的累计值,避免多标签数字语义混淆。
+function updateCostBar(turnCost, convId) {
+  const t = tabs[convId || activeConv]; if (!t) return;
+  t.costUsd = (t.costUsd || 0) + turnCost;
+  if ((convId || activeConv) === activeConv) renderCostBar();
+}
+function renderCostBar() {
+  const bar = $('cost-bar');
+  const c = (activeTab() && activeTab().costUsd) || 0;
+  if (c <= 0) { bar.classList.add('hidden'); return; }
+  bar.textContent = '$' + c.toFixed(4);
+  bar.title = `本标签累计费用 $${c.toFixed(4)}`;
+  bar.classList.remove('hidden');
+}
+
+// ── 会话导出 ──────────────────────────────────────────────────────────────
+function exportSession() {
+  const tab = activeTab();
+  if (!tab.history || !tab.history.length) { setStatus('当前会话无可导出的内容'); return; }
+  // 直接用 history(含恢复的历史):assistant 用原始 markdown,user 用 html 去标签为纯文本。
+  const tmp = document.createElement('div');
+  const lines = ['# MATLAB Copilot 会话记录\n'];
+  for (const m of tab.history) {
+    let body;
+    if (m.role === 'assistant' && m.raw !== undefined) {
+      body = m.raw;
+    } else { tmp.innerHTML = m.html || ''; body = tmp.textContent.trim(); }
+    lines.push((m.role === 'user' ? '## 👤 用户' : '## 🤖 Copilot') + '\n\n' + body + '\n\n---\n');
+  }
+  const md = lines.join('\n');
+  const ts = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
+  const a = document.createElement('a');
+  a.href = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(md);
+  a.download = 'copilot-' + ts + '.md';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+let lastSentMsg = '';
+function sendMessage() {
+  const text = $('input').value.trim();
+  if (activeTab().busy) return;
+  if (!text && !attachCount) return;            // 无文本也无附件才拦
+  if (text) lastSentMsg = text;
+  useRender(activeConv);
+  addUserMessage(text || '（见附件）');
+  $('input').value = '';
+  $('input').style.height = 'auto';
+  setBusy(true, activeConv);
+  toMatlab('user_message', { id: nextId(), text: text || '请查看我附加的图片/文件并据此回答。' });
+}
+function quickChat(label, text) {
+  if (activeTab().busy) return;
+  useRender(activeConv);
+  addMsg('user', escapeHtml(label));
+  setBusy(true, activeConv);
+  toMatlab('user_message', { id: nextId(), text });
+}
+
+$('send').onclick = sendMessage;
+$('stop').onclick = () => { toMatlab('interrupt', {}); setBusy(false, activeConv); setStatus('已停止'); };
+$('btn-diagnose').onclick = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '🩺 诊断当前报错'); setBusy(true, activeConv); toMatlab('diagnose_error', {}); } };
+$('btn-explain').onclick = () => quickChat('📖 解释选中', '请解释选中的代码或选中的 Simulink block 的作用与原理;若没有选中,则解释当前文件/模型的整体功能。');
+$('btn-comment').onclick = () => quickChat('💬 给选中加注释', '请给选中的代码添加清晰的中文注释,保持逻辑和缩进不变,只返回加注释后的代码。');
+$('btn-test').onclick = () => quickChat('🧪 生成测试', '请为当前文件/选中代码或当前模型生成测试用例(MATLAB Test 的 functiontests 或 Simulink Test),覆盖正常、边界、异常情况,并说明如何运行。');
+$('btn-check').onclick = () => quickChat('✔ 标准检查', '请对当前 Simulink 模型运行建模标准检查(model_check / Simulink Check),按严重程度汇总问题并给出修复建议。');
+$('btn-find').onclick = () => {
+  const q = $('input').value.trim();
+  if (!q) { setStatus('在输入框描述要找的模块,再点「🔍 查找模块」'); return; }
+  if (activeTab().busy) return;
+  useRender(activeConv);
+  $('input').value = '';
+  addMsg('user', '🔍 查找模块:' + escapeHtml(q));
+  setBusy(true, activeConv);
+  toMatlab('find_block', { query: q });
+};
+$('btn-explainblk').onclick = () => {
+  if (activeTab().busy) return;
+  setStatus('正在解释选中模块…');
+  toMatlab('explain_selected', {});
+};
+$('btn-heal').onclick    = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '🔄 自愈运行');   setBusy(true, activeConv); toMatlab('self_heal',      {}); } };
+$('btn-req').onclick     = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '📋 需求追溯');   setBusy(true, activeConv); toMatlab('requirements',   {}); } };
+$('btn-codegen').onclick = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '🔬 代码评审');   setBusy(true, activeConv); toMatlab('codegen_review', {}); } };
+$('btn-batch').onclick = () => {
+  const q = $('input').value.trim();
+  if (!q) { setStatus('在输入框描述批改内容(如「给所有 Outport 加日志」),再点「🪄 批量编辑」'); return; }
+  if (activeTab().busy) return;
+  useRender(activeConv);
+  $('input').value = '';
+  addMsg('user', '🪄 批量编辑:' + escapeHtml(q));
+  setBusy(true, activeConv);
+  toMatlab('batch_edit', { query: q });
+};
+$('btn-capture').onclick = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '📸 截图分析模型'); setBusy(true, activeConv); toMatlab('capture_model', {}); } };
+$('btn-testflow').onclick = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '🧪▶ 测试编排'); setBusy(true, activeConv); toMatlab('test_orchestrate', {}); } };
+$('btn-tasks').onclick = () => {
+  if (activeTab().busy) return;
+  setStatus('正在运行任务流…');
+  toMatlab('run_tasks', {});
+};
+$('btn-doc').onclick = () => {
+  const q = $('input').value.trim();
+  if (!q) { setStatus('在输入框写要查的函数/功能/报错,再点「📖 查文档」'); return; }
+  if (activeTab().busy) return;
+  useRender(activeConv);
+  $('input').value = '';
+  addMsg('user', '📖 查文档:' + escapeHtml(q));
+  setBusy(true, activeConv);
+  const text = '请查 MathWorks 官方文档回答:' + q + '。用 WebFetch 抓取对应的 mathworks.com/help 文档页核实后再答,' +
+    '答案锚定抓取到的真实内容(语法/参数/行为以文档为准),并给出你实际抓取成功的可点击文档链接;不要编造链接或函数行为。';
+  toMatlab('user_message', { id: nextId(), text });
+};
+$('btn-cursor').onclick = () => {
+  const text = $('input').value.trim();
+  if (!text) { setStatus('在输入框写要生成的内容,再点「生成到光标」'); return; }
+  if (activeTab().busy) return;
+  $('input').value = '';
+  setStatus('正在生成到光标处…');
+  toMatlab('ask_at_cursor', { text });
+};
+$('btn-refresh').onclick = () => { toMatlab('request_context', {}); setStatus('已刷新上下文'); };
+// 上下文图标:悬停弹气泡,移开隐藏(气泡定位到图标正下方)。
+(function () {
+  const chip = $('ctx-chip'), pop = $('ctx-pop');
+  let hideT = null;
+  const show = () => { if (hideT) { clearTimeout(hideT); hideT = null; }
+    const r = chip.getBoundingClientRect();
+    pop.style.top = (r.bottom + 6) + 'px';
+    pop.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
+    pop.classList.add('show'); };
+  const hide = () => { hideT = setTimeout(() => pop.classList.remove('show'), 120); };
+  chip.addEventListener('mouseenter', show);
+  chip.addEventListener('mouseleave', hide);
+})();
+$('btn-clear').onclick = () => { const t = activeTab(); t.pane.innerHTML = WELCOME_HTML; t.bubbles = {}; t.thinks = {}; t.history = []; useRender(activeConv); saveSession(); };
+$('input').addEventListener('keydown', (e) => {
+  const pop = $('slash-pop');
+  const popOpen = !pop.classList.contains('hidden');
+  // Ctrl+K → 打开斜杠面板
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') { e.preventDefault(); buildSlash(''); showPop('slash-pop'); return; }
+  // 面板打开时 ↓ → 移入面板第一项
+  if (popOpen && e.key === 'ArrowDown') { e.preventDefault(); pop.querySelector('.pop-item')?.focus(); return; }
+  // 面板打开时 Esc → 关闭
+  if (popOpen && e.key === 'Escape') { e.preventDefault(); hidePop('slash-pop'); return; }
+  // 空输入框 ↑ → 召回上条消息
+  if (!popOpen && e.key === 'ArrowUp' && !e.target.value && lastSentMsg) {
+    e.preventDefault(); e.target.value = lastSentMsg;
+    e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px'; return;
+  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+$('input').addEventListener('input', (e) => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 150) + 'px'; });
+bindImagePaste($('input'));   // 主输入框粘贴图片(截图)→ 附件
+
+// ── 悬停 2 秒弹出功能说明气泡(对所有带 data-tip 的元素生效)─────────────────
+(function initTips() {
+  const tip = $('tip');
+  let timer = null, cur = null;
+  function show(el) {
+    const t = el.getAttribute('data-tip'); if (!t) return;
+    const title = el.textContent.trim();
+    tip.innerHTML = '<b>' + escapeHtml(title) + '</b><br>' + escapeHtml(t).replace(/\n/g, '<br>');
+    tip.classList.add('show');
+    const r = el.getBoundingClientRect();
+    const tw = tip.offsetWidth, th = tip.offsetHeight, pad = 8;
+    let left = Math.min(Math.max(pad, r.left), window.innerWidth - tw - pad);
+    let top = r.top - th - 8;               // 默认放按钮上方
+    if (top < pad) top = r.bottom + 8;       // 上方放不下则放下方
+    tip.style.left = left + 'px';
+    tip.style.top = top + 'px';
+  }
+  function hide() { tip.classList.remove('show'); cur = null; if (timer) { clearTimeout(timer); timer = null; } }
+  document.addEventListener('mouseover', (e) => {
+    const el = e.target.closest && e.target.closest('[data-tip]');
+    if (!el || el === cur) return;
+    hide(); cur = el;
+    timer = setTimeout(() => show(el), 2000);   // 悬停满 2 秒才弹
+  });
+  document.addEventListener('mouseout', (e) => {
+    const el = e.target.closest && e.target.closest('[data-tip]');
+    if (el && el === cur) hide();
+  });
+  document.addEventListener('scroll', hide, true);
+  document.addEventListener('click', hide, true);
+})();
+
+window.addEventListener('load', () => {
+  if (!MC) setStatus('（独立预览模式，未连接 MATLAB）');
+  setTimeout(() => { toMatlab('request_context', {}); toMatlab('get_capabilities', {}); if (themeChoice === 'auto') toMatlab('request_theme', {}); }, 300);
+});
+</script>
+
+<script>
+// ── 工具栏:后端 / 模型 / 思考强度 / 编辑模式 / 附件 / 斜杠命令 ──────────────
+// config 指向「当前活动标签」的配置对象(每页独立配置);切换标签时由 switchTab 重指。
+let caps = null;
+
+function applyCaps(c) {
+  caps = c;
+  if (c.current) Object.assign(config, c.current);   // 仅作为活动标签的初值
+  populateModels(); buildSlash(''); reflectConfig();
+}
+function onConfigChanged(convId, cfg) {
+  const t = getTab(convId);
+  if (cfg) Object.assign(t.config, cfg);
+  if (t.convId === activeConv) { reflectConfig(); setStatus('已应用:' + (t.config.backend) + ' · ' + (t.config.mode)); }
+  setBusy(false, t.convId);
+}
+
+function populateModels() {
+  const sel = $('tb-model'); if (!sel) return;
+  const list = (caps && caps.models && caps.models[config.backend]) || [];
+  sel.innerHTML = list.map((m) => '<option>' + escapeHtml(m) + '</option>').join('');
+  if (config.model && list.indexOf(config.model) >= 0) sel.value = config.model;
+  else config.model = sel.value || null;
+}
+function reflectConfig() {
+  $('tb-backend').textContent = config.backend === 'codex' ? 'Codex' : 'Claude Code';
+  if ($('tb-effort')) $('tb-effort').value = config.effort || 'medium';
+  const fast = $('tb-fast');
+  if (fast) {
+    const isCodex = config.backend === 'codex';   // 常驻仅 Claude Code 适用
+    fast.classList.toggle('on', !isCodex && !!config.persistent);
+    fast.classList.toggle('disabled', isCodex);
+    fast.title = isCodex ? '常驻后端仅适用于 Claude Code 后端'
+      : '常驻后端:进程常驻,消除每轮冷启延迟(切换后下一轮生效)';
+  }
+  const map = { ask: '✋ Ask before edits', auto: '‹/› Edit automatically', plan: '▤ Plan mode' };
+  $('mode-label').textContent = map[config.mode] || map.ask;
+  document.querySelectorAll('#modes-pop .pop-item').forEach((it) => it.classList.toggle('active', it.dataset.mode === config.mode));
+}
+function setConfig(partial) { Object.assign(config, partial); toMatlab('set_config', { config: partial }); reflectConfig(); }
+
+// 附件 chips
+let attachCount = 0;   // 当前附件数(供「无文本也能发」判断)
+function renderAttachments(files) {
+  files = Array.isArray(files) ? files : (files ? [files] : []);
+  attachCount = files.length;
+  const wrap = $('attachments');
+  wrap.innerHTML = files.map((f, i) => '<span class="att">📎 ' + escapeHtml(f) + '<span class="x" data-rm="' + i + '">✕</span></span>').join('') +
+    (files.length > 1 ? '<span class="att" id="att-clear">清除全部</span>' : '');
+  wrap.querySelectorAll('[data-rm]').forEach((el) => el.onclick = () => toMatlab('remove_attachment', { index: +el.dataset.rm }));
+  if ($('att-clear')) $('att-clear').onclick = () => toMatlab('clear_attachments', {});
+}
+
+// 弹窗
+function hidePops() { document.querySelectorAll('.popup').forEach((p) => p.classList.add('hidden')); }
+function togglePop(id) { const p = $(id); const wasHidden = p.classList.contains('hidden'); hidePops(); if (wasHidden) p.classList.remove('hidden'); }
+function showPop(id) { hidePops(); $(id).classList.remove('hidden'); }
+
+// 斜杠菜单
+function buildSlash(filter) {
+  const pop = $('slash-pop'); pop.classList.add('slash');
+  const cmds = (caps && caps.commands) || [];
+  const f = (filter || '').toLowerCase();
+  const items = cmds.filter((c) => c.name.toLowerCase().indexOf(f) >= 0);
+  pop.innerHTML = '<div class="pop-title">斜杠命令<span class="pop-hint">' + items.length + '</span></div>' +
+    items.map((c) => '<button class="pop-item" data-cmd="' + escapeHtml(c.name) + '"><span class="pi-ic">/</span><div class="pi-txt"><b class="pi-cmd">' + escapeHtml(c.name) + '</b><small>' + escapeHtml(c.desc || '') + '</small></div></button>').join('');
+  pop.querySelectorAll('.pop-item').forEach((it) => it.onclick = () => runSlash(it.dataset.cmd, ''));
+}
+function runSlash(name, args) {
+  hidePops();
+  switch (name) {
+    // —— MBD 操作 → 代理到已有按钮/函数 ——
+    case '/explain':  $('btn-explain').click(); break;
+    case '/comment':  $('btn-comment').click(); break;
+    case '/fix':      $('btn-diagnose').click(); break;
+    case '/test':     $('btn-test').click(); break;
+    case '/check':    $('btn-check').click(); break;
+    case '/overview': quickChat('📊 模型/文件概览',
+      '请给出当前打开的 Simulink 模型或 MATLAB 文件的整体概览:功能说明、主要 block/函数、输入输出、关键参数。'); break;
+    case '/heal':     $('btn-heal').click(); break;
+    case '/capture':  $('btn-capture').click(); break;
+    case '/req':      $('btn-req').click(); break;
+    case '/codegen':  $('btn-codegen').click(); break;
+    case '/batch':    $('btn-batch').click(); break;
+    case '/testflow': $('btn-testflow').click(); break;
+    case '/export':   exportSession(); break;
+    // —— 配置 ——
+    case '/claude': config.backend = 'claude'; populateModels(); setConfig({ backend: 'claude', model: config.model }); break;
+    case '/codex':  config.backend = 'codex';  populateModels(); setConfig({ backend: 'codex',  model: config.model }); break;
+    case '/model':  $('tb-model').focus(); break;
+    case '/think':  $('tb-effort').focus(); break;
+    case '/mode':   togglePop('modes-pop'); break;
+    // —— UI ——
+    case '/clear':   $('btn-clear').click(); break;
+    case '/context': toMatlab('request_context', {}); break;
+    default: useRender(activeConv); addMsg('user', escapeHtml(name + (args ? ' ' + args : ''))); setBusy(true, activeConv); toMatlab('slash_command', { name, args: args || '' }); break;
+  }
+}
+
+// 绑定
+$('tb-attach').onclick  = () => toMatlab('attach_file', {});
+$('tb-export').onclick  = exportSession;
+$('tb-slash').onclick = (e) => { e.stopPropagation(); buildSlash(''); togglePop('slash-pop'); };
+$('tb-backend').onclick = () => { const b = config.backend === 'codex' ? 'claude' : 'codex'; config.backend = b; populateModels(); setConfig({ backend: b, model: config.model }); };
+$('tb-model').onchange = (e) => setConfig({ model: e.target.value });
+$('tb-effort').onchange = (e) => setConfig({ effort: e.target.value });
+$('tb-mode').onclick = (e) => { e.stopPropagation(); togglePop('modes-pop'); };
+$('tb-fast').onclick = () => {
+  if (config.backend === 'codex') { setStatus('常驻后端仅适用于 Claude Code 后端'); return; }
+  const on = !config.persistent;
+  setConfig({ persistent: on });
+  setStatus(on ? '已开启常驻后端(下一轮生效)' : '已关闭常驻后端,回退到 resume 模式');
+};
+document.querySelectorAll('#modes-pop .pop-item').forEach((it) => it.onclick = () => { setConfig({ mode: it.dataset.mode }); hidePops(); });
+document.addEventListener('click', hidePops);
+
+// ── 标签页(多会话)管理 ─────────────────────────────────────────────────────
+let renamingConv = null;   // 正在改名的标签 convId(改名态由 renderTabs 渲染输入框,避免被重绘冲掉)
+function renderTabs() {
+  const list = $('tabs-list');
+  list.innerHTML = '';
+  const real = Object.values(tabs).filter((t) => !t.isFork);   // 分支(fork)不进标签栏
+  const multi = real.length > 1;
+  real.forEach((t) => {
+    const el = document.createElement('div');
+    el.className = 'tab' + (t.convId === activeConv ? ' active' : '') + (t.busy ? ' busy' : '');
+    el.dataset.conv = t.convId;
+    if (renamingConv === t.convId) {
+      el.innerHTML = '<span class="tdot"></span><input class="tname-input" value="' + escapeHtml(t.name) + '">';
+    } else {
+      el.innerHTML = '<span class="tdot"></span><span class="tname">' + escapeHtml(t.name) + '</span>' +
+        (multi ? '<span class="tx" title="关闭">×</span>' : '');
+    }
+    el.onclick = (e) => {
+      if (e.target.classList.contains('tname-input')) { e.stopPropagation(); return; }
+      if (e.target.classList.contains('tx')) closeTab(t.convId);
+      else if (renamingConv !== t.convId) switchTab(t.convId);
+    };
+    el.ondblclick = (e) => { if (!e.target.classList.contains('tx')) startRename(t.convId); };
+    list.appendChild(el);
+  });
+  // 渲染后聚焦改名输入框并接线提交。
+  if (renamingConv) {
+    const inp = list.querySelector('.tname-input');
+    if (inp) {
+      inp.focus(); inp.select();
+      const commit = () => {
+        if (renamingConv === null) return;       // 防 Enter + blur 双触发
+        const t = tabs[renamingConv]; if (t) t.name = (inp.value || '').trim() || t.name;
+        renamingConv = null; renderTabs();
+      };
+      inp.onblur = commit;
+      inp.onkeydown = (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { renamingConv = null; renderTabs(); }
+      };
+      inp.onclick = (e) => e.stopPropagation();
+    }
+  }
+}
+function startRename(convId) { renamingConv = convId; renderTabs(); }
+function switchTab(convId) {
+  if (!tabs[convId]) return;
+  activeConv = convId;
+  Object.values(tabs).forEach((t) => t.pane.classList.toggle('active', t.convId === convId));
+  const t = useRender(convId);
+  config = t.config; auditLog = t.auditLog; busy = t.busy;
+  reflectConfig(); populateModels();
+  $('send').disabled = t.busy; $('stop').style.display = t.busy ? 'inline-flex' : 'none';
+  $('sdot').className = 'sdot ' + (t.busy ? 'busy' : 'live');
+  renderCostBar();   // 成本条切换到当前标签的累计值
+  renderTabs(); scrollDown();
+}
+function newTab() {
+  const convId = 't' + (++tabSeq);
+  const t = makeTabState(convId, '会话 ' + tabSeq);
+  if (activeTab()) Object.assign(t.config, activeTab().config, { model: activeTab().config.model });
+  switchTab(convId);
+  setStatus('新建标签页(双击标签可改名)');
+}
+function closeTab(convId) {
+  if (Object.keys(tabs).length <= 1) return;
+  const t = tabs[convId];
+  if (t) { t.pane.remove(); delete tabs[convId]; }
+  toMatlab('close_conv', { convId });   // 显式带被关 convId(覆盖默认 activeConv)
+  if (activeConv === convId) switchTab(Object.keys(tabs)[0]);
+  else renderTabs();
+  saveSession();
+}
+$('tab-add').onclick = newTab;
+// 初始化主标签页(会话 1)。
+makeTabState('main', '会话 1');
+switchTab('main');
+// 预览模式(未连 MATLAB)无 context 推送,直接用 default key 恢复;连接模式则等首次 renderContext。
+if (!MC) ensureProjectKey(null);
+// 关闭/刷新前最后保存一次(防抖窗口内的改动不丢)。
+window.addEventListener('beforeunload', saveSession);
+
+// ── 界面主题:Light / Dark / 随 MATLAB ───────────────────────────────────────
+let themeChoice = 'auto';   // 用户的选择:light|dark|auto
+function loadThemeChoice() { try { return localStorage.getItem('mc-theme') || 'auto'; } catch (e) { return 'auto'; } }
+function saveThemeChoice(c) { try { localStorage.setItem('mc-theme', c); } catch (e) {} }
+// 实际着色:mode = light|dark。dark 是默认(无 data-theme)。
+function paintTheme(mode) { document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : 'dark'); }
+function applyThemeChoice(choice) {
+  themeChoice = choice; saveThemeChoice(choice);
+  if (choice === 'light' || choice === 'dark') paintTheme(choice);
+  else toMatlab('request_theme', {});   // auto:问 MATLAB 当前是明是暗
+  reflectTheme();
+}
+function reflectTheme() {
+  document.querySelectorAll('#theme-pop .pop-item').forEach((it) => it.classList.toggle('active', it.dataset.themeChoice === themeChoice));
+}
+$('tb-theme').onclick = (e) => { e.stopPropagation(); togglePop('theme-pop'); };
+$('tb-audit').onclick = (e) => { e.stopPropagation(); renderAudit(); togglePop('audit-pop'); };
+document.querySelectorAll('#theme-pop .pop-item').forEach((it) => it.onclick = () => { applyThemeChoice(it.dataset.themeChoice); hidePops(); });
+// 选了「随 MATLAB」时,窗口重新获焦就再同步一次(覆盖期间改了 MATLAB 主题的情况)。
+window.addEventListener('focus', () => { if (themeChoice === 'auto') toMatlab('request_theme', {}); });
+// 初始化:读保存的选择并先着色(auto 先按 dark 占位,等 MATLAB 回主题再覆盖)。
+themeChoice = loadThemeChoice();
+paintTheme(themeChoice === 'light' ? 'light' : 'dark');
+reflectTheme();
+
+// 输入框打 / 时弹出斜杠菜单;Enter 提交斜杠命令
+function hidePop(id) { $(id).classList.add('hidden'); }
+$('input').addEventListener('input', (e) => {
+  const v = e.target.value;
+  if (/^\/\S*$/.test(v)) { buildSlash(v); showPop('slash-pop'); } else hidePop('slash-pop');
+});
+// 面板内 ↑/↓/Esc 键盘导航
+$('slash-pop').addEventListener('keydown', (e) => {
+  const items = [...$('slash-pop').querySelectorAll('.pop-item')];
+  const idx = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown') { e.preventDefault(); items[(idx + 1) % items.length]?.focus(); }
+  if (e.key === 'ArrowUp')   { e.preventDefault(); if (idx <= 0) { hidePop('slash-pop'); $('input').focus(); } else items[idx - 1]?.focus(); }
+  if (e.key === 'Escape')    { e.preventDefault(); hidePop('slash-pop'); $('input').focus(); }
+});
+// 捕获阶段:斜杠 + Enter → 提交命令(在普通 sendMessage 之前拦截)
+$('input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    const v = e.target.value.trim();
+    if (v.startsWith('/')) {
+      const name = v.split(/\s+/)[0]; e.preventDefault(); e.stopImmediatePropagation();
+      $('input').value = ''; hidePop('slash-pop'); runSlash(name, v.slice(name.length).trim());
+    }
+  }
+}, true);
+</script>
+</body>
+</html>

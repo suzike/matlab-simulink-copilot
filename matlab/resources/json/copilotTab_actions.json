@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "entries": [
+    {
+      "type": "Action",
+      "id": "copilotOpenAction",
+      "text": "打开\nCopilot",
+      "description": "打开 MATLAB/Simulink Copilot 侧边栏",
+      "command": "copilot",
+      "commandType": "Callback",
+      "icon": "copilotIcon"
+    },
+    {
+      "type": "Icon",
+      "id": "copilotIcon",
+      "icon16": "copilot_16.png",
+      "icon24": "copilot_24.png"
+    }
+  ]
+}
