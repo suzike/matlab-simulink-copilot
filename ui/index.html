@@ -206,6 +206,9 @@
             padding: 4px 10px; font-size: 11px; cursor: pointer; white-space: nowrap; }
   .fi-btn:hover { border-color: var(--brand2); color: var(--text); }
   .fi-btn.primary { background: linear-gradient(135deg, var(--brand1), var(--brand2)); border-color: transparent; color: #fff; font-weight: 600; }
+  /* 已批注的文字段:持久黄色高亮,标识追问针对哪段(亮/暗主题均可读) */
+  mark.annot-mark { background: rgba(250, 204, 21, .32); color: inherit; border-radius: 3px; padding: 0 1px;
+                    box-shadow: inset 0 0 0 1px rgba(250, 204, 21, .35); }
   /* Fork 分支区(嵌在卡片内) */
   .fork-zone { margin-top: 10px; border-top: 1px dashed var(--brand2); padding-top: 8px; }
   .fork-head { font-size: 10.5px; color: var(--brand1); font-weight: 600; margin-bottom: 7px; }
@@ -842,8 +845,20 @@ function appendAnnotation(snippet, question) {
   setStatus('已加入批注，可继续标注或直接发送');
 }
 
-// 在 (x,y) 处弹浮动批注框,确认后把批注汇总进输入框。
-function openAnnotatePopup(x, y, snippet) {
+// 把一个 Range 包裹成黄色高亮 <mark>,持久标识「这段被批注过」。
+// 选区在右键那一刻就 cloneRange 保存好,到这里 DOM 未变、Range 仍有效。
+function highlightRange(range) {
+  if (!range) return;
+  try {
+    const mark = document.createElement('mark'); mark.className = 'annot-mark';
+    try { range.surroundContents(mark); }                              // 选区在单一节点内
+    catch (e) { mark.appendChild(range.extractContents()); range.insertNode(mark); }  // 跨节点兜底
+    const sel = window.getSelection(); if (sel) sel.removeAllRanges(); // 去掉蓝色选区,只留黄色高亮
+  } catch (e) {}
+}
+
+// 在 (x,y) 处弹浮动批注框,确认后:汇总进输入框 + 高亮被批注的文字段。
+function openAnnotatePopup(x, y, snippet, range) {
   const pop = $('annotate-pop'); pop.innerHTML = '';
   if (snippet) { const s = document.createElement('div'); s.className = 'ap-snippet'; s.textContent = '针对：「' + snippet + '」'; pop.appendChild(s); }
   const ta = document.createElement('textarea'); ta.className = 'ap-input'; ta.rows = 2;
@@ -858,7 +873,7 @@ function openAnnotatePopup(x, y, snippet) {
   pop.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 12)) + 'px';
   pop.style.top  = Math.max(8, Math.min(y, window.innerHeight - h - 12)) + 'px';
   ta.focus();
-  const commit = () => { const q = ta.value.trim(); if (q) appendAnnotation(snippet, q); closeAnnotatePopup(); };
+  const commit = () => { const q = ta.value.trim(); if (q) { appendAnnotation(snippet, q); highlightRange(range); } closeAnnotatePopup(); };
   ok.onclick = commit; cancel.onclick = closeAnnotatePopup;
   ta.addEventListener('keydown', (e) => {
     e.stopPropagation();   // 别触发全局输入框快捷键
@@ -868,21 +883,23 @@ function openAnnotatePopup(x, y, snippet) {
 }
 function closeAnnotatePopup() { const p = $('annotate-pop'); p.classList.add('hidden'); p.innerHTML = ''; }
 
-// 取气泡内的文字选区作锚点(无选区返回空)。
-function selectionSnippetIn(bubbleEl) {
+// 取气泡内的文字选区,返回 { snippet, range }(无有效选区返回 null)。range 已 clone,可跨 DOM 变更使用。
+function selectionRangeIn(bubbleEl) {
   const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return null;
   const r = sel.getRangeAt(0);
-  if (!bubbleEl.contains(r.commonAncestorContainer)) return '';
-  return sel.toString().trim().replace(/\s+/g, ' ').slice(0, 80);
+  if (!bubbleEl.contains(r.commonAncestorContainer)) return null;
+  const snippet = sel.toString().trim().replace(/\s+/g, ' ').slice(0, 80);
+  if (!snippet) return null;
+  return { snippet, range: r.cloneRange() };
 }
 
-// 「✚ 批注」按钮:有选区用选区作锚点,无选区则针对整条(锚点用气泡开头摘要)。
+// 「✚ 批注」按钮:有选区用选区作锚点并高亮,无选区则针对整条(锚点用气泡开头摘要,不高亮)。
 function annotateFromBubble(bubbleEl) {
-  let snippet = selectionSnippetIn(bubbleEl);
-  if (!snippet) snippet = (bubbleEl.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  const picked = selectionRangeIn(bubbleEl);
+  const snippet = picked ? picked.snippet : (bubbleEl.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
   const rect = bubbleEl.getBoundingClientRect();
-  openAnnotatePopup(rect.left + 24, Math.min(rect.bottom - 30, window.innerHeight - 160), snippet);
+  openAnnotatePopup(rect.left + 24, Math.min(rect.bottom - 30, window.innerHeight - 160), snippet, picked && picked.range);
 }
 
 // Fork:在该卡片内开一条「以本卡片内容为种子」的独立子会话,回答嵌在卡片里。
@@ -1242,10 +1259,10 @@ function quickChat(label, text) {
 $('panes').addEventListener('contextmenu', (e) => {
   const bubble = e.target.closest && e.target.closest('.bubble.assistant');
   if (!bubble) return;
-  const snippet = selectionSnippetIn(bubble);
-  if (!snippet) return;
+  const picked = selectionRangeIn(bubble);   // 含 cloneRange,确认时用它高亮
+  if (!picked) return;
   e.preventDefault();
-  openAnnotatePopup(e.clientX, e.clientY, snippet);
+  openAnnotatePopup(e.clientX, e.clientY, picked.snippet, picked.range);
 });
 // 点批注框外部 / 按 Esc → 关闭。
 document.addEventListener('mousedown', (e) => {
