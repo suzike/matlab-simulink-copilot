@@ -489,7 +489,6 @@
       <button id="btn-refresh" data-tip="刷新上下文:手动重新读取并刷新顶栏显示的当前文件/模型/选中 block/工作区变量/最近报错状态。切换了模型或选择后想让顶栏立刻更新时用它。">⟳ 刷新上下文</button>
       <button id="btn-clear" data-tip="清屏:清空当前聊天记录的显示(不影响后端会话历史,也不会改动你的文件或模型)。">🗑 清屏</button>
     </div>
-    <div id="annotate-pop" class="annotate-pop hidden"></div>
     <div id="notes-area" class="notes-area"></div>
     <div class="inputrow">
       <textarea id="input" placeholder="问点什么… (Enter 发送，Shift+Enter 换行，/ 斜杠命令，Ctrl+K 命令面板)"></textarea>
@@ -512,6 +511,8 @@
     <div id="audit-pop" class="popup hidden"></div>
   </footer>
   <div id="tip"></div>
+  <!-- 批注浮框:必须放在 footer 外(footer 的 backdrop-filter 会创建包含块,使内部 position:fixed 相对 footer 而非视口) -->
+  <div id="annotate-pop" class="annotate-pop hidden"></div>
 
 <script>
 // ── 内联 SVG 图标 ───────────────────────────────────────────────────────────
