@@ -589,7 +589,7 @@ function makeTabState(convId, name) {
   pane.innerHTML = WELCOME_HTML;
   $('panes').appendChild(pane);
   const t = { convId, name, pane, bubbles: {}, thinks: {}, busy: false,
-              config: { backend: 'claude', model: null, effort: 'medium', mode: 'ask' }, auditLog: [], history: [], costUsd: 0, queue: [] };
+              config: { backend: 'claude', model: null, effort: 'medium', mode: 'ask' }, auditLog: [], history: [], costUsd: 0, queue: [], pendingNotes: [] };
   tabs[convId] = t;
   return t;
 }
@@ -876,22 +876,29 @@ function addBubbleActions(id) {
 // 位置感知:每条批注都带「针对『选中文字』」锚点,AI 知道问题针对哪段。
 
 // 一条批注 = 一张便签,贴在输入框上方;发送时与输入框文字合并成一条消息(见 sendMessage)。
-let pendingNotes = [];   // [{ snippet, question, mark }]
+// 便签是 per-tab 的(activeTab().pendingNotes),避免多标签切换时串台;mark 元素在该 tab 的 pane 内。
+function curNotes() { const t = activeTab(); if (!t) return []; if (!t.pendingNotes) t.pendingNotes = []; return t.pendingNotes; }
 
 function addNote(snippet, question, mark) {
-  pendingNotes.push({ snippet, question, mark: mark || null });
+  const ns = curNotes();
+  ns.push({ snippet, question, mark: mark || null });
   renderNotesArea();
-  setStatus('已贴便签（' + pendingNotes.length + '），写完点发送一起问');
+  setStatus('已贴便签（' + ns.length + '），写完点发送一起问');
 }
 
 function renderNotesArea() {
   const area = $('notes-area'); area.innerHTML = '';
-  pendingNotes.forEach((n, i) => {
+  const ns = curNotes();
+  ns.forEach((n) => {
     const note = document.createElement('div'); note.className = 'sticky-note';
     if (n.snippet) { const a = document.createElement('div'); a.className = 'sn-anchor'; a.textContent = '📌 ' + n.snippet; a.title = n.snippet; note.appendChild(a); }
     const q = document.createElement('div'); q.className = 'sn-q'; q.textContent = n.question; note.appendChild(q);
     const x = document.createElement('span'); x.className = 'sn-x'; x.textContent = '✕'; x.title = '删除这条批注';
-    x.onclick = () => { unwrapMark(n.mark); pendingNotes.splice(i, 1); renderNotesArea(); };   // 删便签 → 同时撤销高亮
+    x.onclick = () => {                                  // 按对象引用删除(不用闭包索引,避免重渲染错位)
+      unwrapMark(n.mark);                                // 同时撤销高亮
+      const arr = curNotes(); const k = arr.indexOf(n); if (k >= 0) arr.splice(k, 1);
+      renderNotesArea();
+    };
     note.appendChild(x); area.appendChild(note);
   });
 }
@@ -904,17 +911,24 @@ function unwrapMark(mark) {
   p.removeChild(mark); if (p.normalize) p.normalize();
 }
 
-// 把一个 Range 包裹成黄色高亮 <mark>,持久标识「这段被批注过」,返回该 mark 元素。
+// 把一个 Range 包裹成黄色高亮 <mark>,持久标识「这段被批注过」,返回该 mark 元素(无法安全高亮时返回 null)。
 // 选区在右键那一刻就 cloneRange 保存好,到这里 DOM 未变、Range 仍有效。
 function highlightRange(range) {
   if (!range) return null;
   try {
+    // 选区已落在已有高亮里 → 复用,不重复包裹(避免嵌套 <mark>)。
+    const anc = range.commonAncestorContainer;
+    const ancEl = anc.nodeType === 1 ? anc : anc.parentElement;
+    const existing = ancEl && ancEl.closest && ancEl.closest('mark.annot-mark');
+    if (existing) { const sel = window.getSelection(); if (sel) sel.removeAllRanges(); return existing; }
+    // 只用 surroundContents(单文本节点内选区);跨节点/跨块(代码块/列表/多段)会抛错 →
+    // 放弃高亮(返回 null),不用 extractContents 兜底(那会破坏 DOM 结构、产生不平衡标签)。便签仍生效。
     const mark = document.createElement('mark'); mark.className = 'annot-mark';
-    try { range.surroundContents(mark); }                              // 选区在单一节点内
-    catch (e) { mark.appendChild(range.extractContents()); range.insertNode(mark); }  // 跨节点兜底
-    const sel = window.getSelection(); if (sel) sel.removeAllRanges(); // 去掉蓝色选区,只留黄色高亮
+    try { range.surroundContents(mark); }
+    catch (e) { return null; }
+    const sel = window.getSelection(); if (sel) sel.removeAllRanges();
     return mark;
-  } catch (e) {}
+  } catch (e) { return null; }
 }
 
 // 在 (x,y) 处弹浮动批注框,确认后:汇总进输入框 + 高亮被批注的文字段。
@@ -956,6 +970,7 @@ function selectionRangeIn(bubbleEl) {
 
 // 「✚ 批注」按钮:有选区用选区作锚点并高亮,无选区则针对整条(锚点用气泡开头摘要,不高亮)。
 function annotateFromBubble(bubbleEl) {
+  if (bubbleEl.classList.contains('streaming')) { setStatus('回答还在生成中，结束后再批注'); return; }   // 流式中 DOM 在变,Range 会失效
   const picked = selectionRangeIn(bubbleEl);
   const snippet = picked ? picked.snippet : (bubbleEl.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
   const rect = bubbleEl.getBoundingClientRect();
@@ -966,7 +981,7 @@ function annotateFromBubble(bubbleEl) {
 let forkSeq = 0;
 function makeForkState(convId, paneEl) {
   const t = { convId, name: convId, pane: paneEl, bubbles: {}, thinks: {}, busy: false,
-              config: Object.assign({}, activeTab() ? activeTab().config : {}), auditLog: [], isFork: true, sendBtn: null };
+              config: Object.assign({}, activeTab() ? activeTab().config : {}), auditLog: [], isFork: true, sendBtn: null, queue: [], pendingNotes: [] };
   tabs[convId] = t;
   return t;
 }
@@ -1061,8 +1076,10 @@ function onSidecar(msg) {
     case 'tool_result': updateToolCard(msg); break;
     case 'permission_request': addPermission(msg); break;
     case 'result': setBusy(false, cid); if (msg.costUsd != null) updateCostBar(msg.costUsd, cid); if (onActive) setStatus(msg.ok ? '完成' : '出错'); flushQueue(cid); break;
-    case 'interrupted': setBusy(false, cid); if (onActive) setStatus('已中断'); break;   // MATLAB figure 兜底 Esc 中断
-    case 'error': addMsg('error', escapeHtml(msg.message || '未知错误')); setBusy(false, cid); break;
+    // MATLAB figure 兜底 Esc 中断:用户主动停 → 清该会话队列(停就全停,避免卡死)。
+    case 'interrupted': { setBusy(false, cid); const t = tabs[cid]; if (t && t.queue && t.queue.length) { t.queue = []; if (cid === activeConv) renderQueuePanel(); } if (onActive) setStatus('已中断'); break; }
+    // 出错也是一种回合终结:flush 队列下一条,避免排队消息因没收到 result 而永久卡住。
+    case 'error': addMsg('error', escapeHtml(msg.message || '未知错误')); setBusy(false, cid); flushQueue(cid); break;
     case 'user_echo': addMsg('user', escapeHtml(msg.text || '')); setBusy(true, cid); break;
     case 'diagnostics': renderDiagnostics(msg.items); break;
     case 'audit': onAudit(msg.entry); break;
@@ -1303,14 +1320,16 @@ let insertMode = (function(){ try { return localStorage.getItem('mc-insert-mode'
 // 便签 + 输入框文字合并成一条消息(便签在后,带编号+锚点)。
 function buildFinalText() {
   const text = $('input').value.trim();
-  if (!pendingNotes.length) return text;
-  const lines = pendingNotes.map((n, i) => (i + 1) + '. ' + (n.snippet ? '针对「' + n.snippet + '」：' : '') + n.question);
-  const block = '我对你前面的回答有 ' + pendingNotes.length + ' 处批注，请逐条编号回答：\n' + lines.join('\n');
+  const ns = curNotes();
+  if (!ns.length) return text;
+  const lines = ns.map((n, i) => (i + 1) + '. ' + (n.snippet ? '针对「' + n.snippet + '」：' : '') + n.question);
+  const block = '我对你前面的回答有 ' + ns.length + ' 处批注，请逐条编号回答：\n' + lines.join('\n');
   return text ? text + '\n\n' + block : block;
 }
 function clearComposer() {
   $('input').value = ''; $('input').style.height = 'auto';
-  pendingNotes = []; renderNotesArea();   // 便签清空(高亮保留作"已问过"痕迹)
+  const t = activeTab(); if (t) t.pendingNotes = [];   // 便签清空(高亮保留作"已问过"痕迹)
+  renderNotesArea();
 }
 // 真正把一条消息发往后端(渲染用户气泡 + 置忙 + toMatlab)。
 // 只把消息发往后端(置忙 + toMatlab);用户气泡由调用方在发送前先显示,
@@ -1320,24 +1339,25 @@ function sendToBackend(finalText, convId) {
   setBusy(true, cid);
   toMatlab('user_message', { id: nextId(), text: finalText || '请查看我附加的图片/文件并据此回答。', convId: cid });
 }
-// 中断当前回答(供「引导」模式与 Esc 用)。
+// 中断当前回答(用户主动 Stop/Esc)。会【清空当前会话的待发送队列】——「停」就是全停,避免队列卡死。
 function interruptCurrent() {
-  if (!activeTab() || !activeTab().busy) return;
-  toMatlab('interrupt', {});
-  setBusy(false, activeConv);
+  const t = activeTab();
+  if (!t) return;
+  if (t.busy) { toMatlab('interrupt', { convId: t.convId }); setBusy(false, t.convId); }
+  if (t.queue && t.queue.length) { t.queue = []; renderQueuePanel(); }
   setStatus('已中断');
 }
 function sendMessage() {
   const text = $('input').value.trim();
-  if (!text && !pendingNotes.length && !attachCount) return;   // 无文本、无便签、无附件才拦
+  if (!text && !curNotes().length && !attachCount) return;   // 无文本、无便签、无附件才拦
   const finalText = buildFinalText();
   if (text) lastSentMsg = text;
   const t = activeTab();
 
-  // 队列模式 + 回答中:不挤进对话流,显示在【右上角队列区】候着,当前回答结束后依次自动发(见 flushQueue)。
+  // 队列模式 + 回答中:不挤进对话流,显示在【右下角队列区】候着,当前回答结束后依次自动发(见 flushQueue)。
   if (t.busy && insertMode === 'queue') {
     clearComposer();
-    t.queue.push(finalText);
+    t.queue.push({ id: nextId(), text: finalText });   // 带 id,删除按 id 不受 shift 影响
     renderQueuePanel();
     setStatus('已排队（' + t.queue.length + '），当前回答结束后自动发送');
     return;
@@ -1349,25 +1369,26 @@ function sendMessage() {
   clearComposer();
 
   if (t.busy && insertMode === 'steer') {
-    // 引导:中断当前 → 略等中断落地 → 发新输入,优先执行。
-    interruptCurrent();
+    // 引导:中断当前后端回答 + 立即发新指令。busy 保持 true(不本地 setBusy false,避免与中断回执竞态);
+    // 后端 adapter 的 _pending 队列兜底:interrupt 先 kill,新消息排队等 close 后自动发(不丢、不报「上一轮未结束」)。
+    toMatlab('interrupt', { convId: t.convId });
+    sendToBackend(finalText, t.convId);
     setStatus('已中断，优先执行新指令…');
-    setTimeout(() => sendToBackend(finalText, t.convId), 140);
   } else {
     sendToBackend(finalText, t.convId);
   }
 }
-// 一轮回答结束后,若该会话有排队消息,取队首进对话流并发出。
+// 一轮回答结束后(result/interrupted/error 都算回合终结),若该会话有排队消息,取队首进对话流并发出。
 function flushQueue(convId) {
   const t = tabs[convId];
   if (!t || t.busy || !t.queue || !t.queue.length) return;
-  const finalText = t.queue.shift();
-  renderQueuePanel();
+  const item = t.queue.shift();
+  if (convId === activeConv) renderQueuePanel();
   useRender(convId);
-  addUserMessage(finalText);     // 轮到了 → 进对话流显示
-  sendToBackend(finalText, convId);
+  addUserMessage(item.text);     // 轮到了 → 进对话流显示
+  sendToBackend(item.text, convId);
 }
-// 渲染右上角待发送队列(显示当前活动标签的队列;每条可单独删)。
+// 渲染右下角待发送队列(显示当前活动标签的队列;每条按 id 单独删)。
 function renderQueuePanel() {
   const panel = $('queue-panel');
   const t = activeTab();
@@ -1378,13 +1399,13 @@ function renderQueuePanel() {
   const title = document.createElement('div'); title.className = 'qp-title';
   title.textContent = '⏳ 待发送队列 (' + q.length + ')';
   panel.appendChild(title);
-  q.forEach((text, i) => {
+  q.forEach((item, i) => {
     const card = document.createElement('div'); card.className = 'queue-card';
     const n = document.createElement('span'); n.className = 'qc-n'; n.textContent = (i + 1) + '.';
     const body = document.createElement('div'); body.className = 'qc-text';
-    body.textContent = text.replace(/\n+/g, ' '); body.title = text;
+    body.textContent = item.text.replace(/\n+/g, ' '); body.title = item.text;
     const x = document.createElement('span'); x.className = 'qc-x'; x.textContent = '✕'; x.title = '移出队列';
-    x.onclick = () => { t.queue.splice(i, 1); renderQueuePanel(); };
+    x.onclick = () => { t.queue = t.queue.filter((it) => it.id !== item.id); renderQueuePanel(); };  // 按 id 删,不受 shift 影响
     card.appendChild(n); card.appendChild(body); card.appendChild(x);
     panel.appendChild(card);
   });
@@ -1401,6 +1422,7 @@ function quickChat(label, text) {
 $('panes').addEventListener('contextmenu', (e) => {
   const bubble = e.target.closest && e.target.closest('.bubble.assistant');
   if (!bubble) return;
+  if (bubble.classList.contains('streaming')) return;   // 流式中 DOM 在变,Range 会失效 → 放行系统菜单,不批注
   const picked = selectionRangeIn(bubble);   // 含 cloneRange,确认时用它高亮
   if (!picked) return;
   e.preventDefault();
@@ -1515,7 +1537,7 @@ $('btn-refresh').onclick = () => { toMatlab('request_context', {}); setStatus('�
   chip.addEventListener('mouseenter', show);
   chip.addEventListener('mouseleave', hide);
 })();
-$('btn-clear').onclick = () => { const t = activeTab(); t.pane.innerHTML = WELCOME_HTML; t.bubbles = {}; t.thinks = {}; t.history = []; useRender(activeConv); saveSession(); };
+$('btn-clear').onclick = () => { const t = activeTab(); t.pane.innerHTML = WELCOME_HTML; t.bubbles = {}; t.thinks = {}; t.history = []; t.pendingNotes = []; renderNotesArea(); useRender(activeConv); saveSession(); };   // 清屏同时清便签(高亮的 mark 随 pane 一起没了)
 $('input').addEventListener('keydown', (e) => {
   const pop = $('slash-pop');
   const popOpen = !pop.classList.contains('hidden');
@@ -1744,7 +1766,8 @@ function switchTab(convId) {
   reflectConfig(); populateModels();
   $('send').style.display = t.busy ? 'none' : ''; $('stop').style.display = t.busy ? 'inline-flex' : 'none';
   $('sdot').className = 'sdot ' + (t.busy ? 'busy' : 'live');
-  renderQueuePanel();   // 队列是 per-tab,切换时刷新右上角显示
+  renderQueuePanel();   // 队列是 per-tab,切换时刷新右下角显示
+  renderNotesArea();    // 便签也是 per-tab,切换时刷新输入框上方显示
   renderCostBar();   // 成本条切换到当前标签的累计值
   renderTabs(); scrollDown();
 }

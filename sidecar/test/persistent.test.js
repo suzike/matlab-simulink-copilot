@@ -144,13 +144,13 @@ test('resume 模式:上一轮收尾(child 未 close)时发新消息 → 排队,c
   // 上一轮还没 close 就发第二条(result 已出、进程未退出)→ 应排队
   a.sendMessage({ text: 'second' });
   assert.equal(children.length, 1, '第二条不立即 spawn(排队中)');
-  assert.ok(a._pending && a._pending.text === 'second', 'second 进入 _pending');
+  assert.ok(a._pending.length === 1 && a._pending[0].text === 'second', 'second 进入 _pending 队列');
   assert.ok(!events.some((e) => e.type === 'error'), '不报「上一轮尚未结束」');
 
   // 第一轮进程退出 → 自动发第二条
   children[0].emit('close', 0);
   assert.equal(children.length, 2, 'close 后自动 spawn 第二条');
-  assert.equal(a._pending, null, '_pending 已清');
+  assert.equal(a._pending.length, 0, '_pending 已清');
 });
 
 test('resume 模式:主动 kill(中断)时丢弃排队,不自动发', () => {
@@ -159,9 +159,29 @@ test('resume 模式:主动 kill(中断)时丢弃排队,不自动发', () => {
   a.spawnChild = () => { const c = makeFakeChild(); children.push(c); return c; };
   a.sendMessage({ text: 'first' });
   a.sendMessage({ text: 'queued' });
-  assert.ok(a._pending);
-  a.interrupt();                       // 主动中断 → child._killing=true
+  assert.equal(a._pending.length, 1);
+  a.interrupt();                       // 主动中断 → 清空排队
+  assert.equal(a._pending.length, 0, '中断后排队立即被丢弃');
   children[0].emit('close', 0);
-  assert.equal(a._pending, null, '中断后排队被丢弃');
   assert.equal(children.length, 1, '不自动发排队消息');
+});
+
+test('resume 模式:收尾期连发多条 → FIFO 队列,逐条 close 逐条 spawn', () => {
+  const a = new ClaudeCodeAdapter({});
+  const children = [];
+  a.spawnChild = () => { const c = makeFakeChild(); children.push(c); return c; };
+
+  a.sendMessage({ text: 'm1' });
+  a.sendMessage({ text: 'm2' });
+  a.sendMessage({ text: 'm3' });
+  assert.equal(children.length, 1, '后两条都在排队,不立即 spawn');
+  assert.deepEqual(a._pending.map((p) => p.text), ['m2', 'm3'], '按序入队,不互相覆盖');
+
+  children[0].emit('close', 0);        // m1 退出 → 发 m2
+  assert.equal(children.length, 2);
+  assert.deepEqual(a._pending.map((p) => p.text), ['m3'], 'm2 出队,m3 仍排队');
+
+  children[1].emit('close', 0);        // m2 退出 → 发 m3
+  assert.equal(children.length, 3);
+  assert.equal(a._pending.length, 0, '队列排空');
 });

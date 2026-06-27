@@ -58,6 +58,34 @@ test('turn.failed → 报错 + 补 RESULT(ok:false),保证 UI 收尾不卡 think
   assert.equal(out.find((e) => e.type === OutMsg.RESULT).ok, false);
 });
 
+test('收尾期多条消息按 FIFO 入队 _pending;interrupt 立即清空', async () => {
+  const a = new CodexAdapter();
+  a.child = { _killing: false, kill() { this._killing = true; }, stdin: { on(){}, write(){}, end(){} } };  // 假装上一轮未 close
+  await a.sendMessage({ text: 'q1' });   // child 仍在 → 入队
+  await a.sendMessage({ text: 'q2' });
+  assert.deepEqual(a._pending.map((p) => p.text), ['q1', 'q2'], '按序入队,不互相覆盖');
+  a.interrupt();                          // 用户主动中断 → 清空排队
+  assert.equal(a._pending.length, 0, '中断后排队清空');
+});
+
+test('killChild:用户中断打 _userAbort,看门狗等自动终止只打 _killing(排队得以保留)', () => {
+  const a = new CodexAdapter();
+  const auto = { kill() {}, stdin: { on(){} } };
+  const aborted = { kill() {}, stdin: { on(){} } };
+  a.killChild(auto);                       // 自动终止(看门狗)
+  a.killChild(aborted, { userAbort: true });
+  assert.equal(auto._killing, true);
+  assert.ok(!auto._userAbort, '自动终止不应标 userAbort → close 会保留并续发排队');
+  assert.equal(aborted._userAbort, true, '用户中断标 userAbort → close 清空排队');
+});
+
+test('resetSession 清空排队', () => {
+  const a = new CodexAdapter();
+  a._pending = [{ text: 'x' }];
+  a.resetSession();
+  assert.equal(a._pending.length, 0);
+});
+
 test('per-child 守卫:旧 child 的迟到 close 不影响新 child', () => {
   const a = new CodexAdapter();
   // 用假 child 模拟两代进程

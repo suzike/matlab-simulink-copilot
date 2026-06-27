@@ -36,7 +36,7 @@ export class ClaudeCodeAdapter extends BackendAdapter {
     this.child = null;
     this.translator = null;   // 常驻模式:跨轮复用的 stream-json 翻译器
     this.busy = false;        // 常驻模式:本轮是否进行中(防上一轮未结束就又发;不依赖 child 是否存在)
-    this._pending = null;     // resume 模式:上一轮收尾(result 已出、未 close)期间排队的下一条消息
+    this._pending = [];       // resume 模式:上一轮收尾(result 已出、未 close)期间排队的下几条消息(FIFO)
     // 主动 kill / 不回写 session 的标记绑定到具体 child 实例(child._killing / child._noSession),
     // 避免「同步 kill+立即新建」与「异步 close 回调」跨代竞争一个共享布尔。
   }
@@ -104,9 +104,9 @@ export class ClaudeCodeAdapter extends BackendAdapter {
   // resume 模式:每轮独立 spawn,写完 stdin 即关闭 → claude 处理产出 result 后退出。
   sendOneShot(payload = {}) {
     if (this.child) {
-      // 上一轮收尾中(result 已发、进程尚未 close)→ 排队,进程 close 后自动发;
+      // 上一轮收尾中(result 已发、进程尚未 close)→ 入队,进程 close 后逐条发;
       // 否则会撞上「上一轮尚未结束」(队列/引导模式在 result 后立刻发下一条时常见)。
-      this._pending = payload;
+      this._pending.push(payload);
       return;
     }
     const { text, context, systemPrompt } = payload;
@@ -219,9 +219,18 @@ export class ClaudeCodeAdapter extends BackendAdapter {
         const tail = stderrBuf.trim().split('\n').slice(-5).join('\n');
         this.emitEvent({ type: OutMsg.ERROR, message: `${label} 退出码 ${code}${tail ? `:\n${tail}` : ''}` });
       }
-      // 排队的下一轮:进程正常退出后发(此时 this.child 已 null);主动 kill(中断/重置)则丢弃排队。
-      if (child._killing) { this._pending = null; }
-      else if (!this.child && this._pending) { const p = this._pending; this._pending = null; this.sendMessage(p); }
+      // 排队的下一轮:进程正常退出后逐条发(此时 this.child 已 null);主动 kill(中断/重置)则清空排队。
+      // 同步 spawn,同时兜住同步抛错与异步 reject,避免排队消息发送失败时未捕获异常拖垮 sidecar。
+      if (child._killing) { this._pending = []; }
+      else if (!this.child && this._pending.length) {
+        const p = this._pending.shift();
+        try {
+          const r = this.sendMessage(p);
+          if (r && typeof r.catch === 'function') r.catch((err) => this.emitEvent({ type: OutMsg.ERROR, message: '排队消息发送失败: ' + (err?.message || err) }));
+        } catch (err) {
+          this.emitEvent({ type: OutMsg.ERROR, message: '排队消息发送失败: ' + (err?.message || err) });
+        }
+      }
     });
   }
 
@@ -234,6 +243,7 @@ export class ClaudeCodeAdapter extends BackendAdapter {
   }
 
   interrupt() {
+    this._pending = [];   // 中断即丢弃所有排队消息(前端队列也已同步清空)
     if (this.child) {
       this.killChild(this.child);
       this.child = null;   // 常驻模式:下轮 sendPersistent 以 sessionId resume 重启
@@ -243,6 +253,7 @@ export class ClaudeCodeAdapter extends BackendAdapter {
   }
 
   async stop() {
+    this._pending = [];
     if (this.child) {
       this.killChild(this.child);
       this.child = null;
@@ -252,6 +263,7 @@ export class ClaudeCodeAdapter extends BackendAdapter {
 
   resetSession() {
     this.sessionId = null;
+    this._pending = [];   // 换会话:残留的旧排队不应带进新会话
     // 在途进程必须 kill 并禁止其 close 回写 session(否则旧进程退出会覆盖刚清空的 sessionId)。
     // 常驻模式下这也保证换新 session 时重启进程。
     if (this.child) {
