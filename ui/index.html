@@ -380,6 +380,8 @@
   .tbtn { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--border2); background: var(--surface2);
           color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
   .tbtn:hover { color: var(--text); border-color: var(--brand2); }
+  /* 插入模式按钮:引导(steer)态醒目橙色,提示会中断当前回答 */
+  #tb-insert.steer { color: #f59e0b; border-color: rgba(245,158,11,.5); background: rgba(245,158,11,.12); }
   /* 右侧配置项:统一为一个分段控件容器,同高、无缝、细分隔线 */
   .tb-group { display: inline-flex; align-items: center; height: 30px; background: var(--surface2);
               border: 1px solid var(--border2); border-radius: 9px; overflow: hidden; }
@@ -449,6 +451,7 @@
       <button class="tbtn" id="tb-theme" title="界面主题" data-tip="界面主题:Light 亮色 / Dark 暗色 / 随 MATLAB(跟随 MATLAB 当前明暗主题自动切换)。点击选择。">◑</button>
       <button class="tbtn" id="tb-audit" title="变更记录" data-tip="变更记录(可追溯):列出本会话所有破坏性操作(改模型/跑代码/跑测试)的留痕——时间、工具、改了什么、成功与否。同时按天写入 ~/.matlab-copilot/audit-*.jsonl 持久存档。">📋</button>
       <button class="tbtn" id="tb-export" title="导出当前对话为 Markdown 文件">⬇</button>
+      <button class="tbtn" id="tb-insert" data-tip="回答中插入新需求的处理方式:【⏳ 队列】= 排队,等当前回答结束再自动发出;【⚡ 引导】= 立即中断当前回答,改按新输入回复。点击切换。(回答中按 Esc 可随时中断)">⏳</button>
       <span class="tb-spacer"></span>
       <div class="tb-group">
         <button class="seg" id="tb-backend" title="切换后端 Claude/Codex">Claude Code</button>
@@ -562,7 +565,7 @@ function makeTabState(convId, name) {
   pane.innerHTML = WELCOME_HTML;
   $('panes').appendChild(pane);
   const t = { convId, name, pane, bubbles: {}, thinks: {}, busy: false,
-              config: { backend: 'claude', model: null, effort: 'medium', mode: 'ask' }, auditLog: [], history: [], costUsd: 0 };
+              config: { backend: 'claude', model: null, effort: 'medium', mode: 'ask' }, auditLog: [], history: [], costUsd: 0, queue: [] };
   tabs[convId] = t;
   return t;
 }
@@ -1032,7 +1035,7 @@ function onSidecar(msg) {
     case 'tool_use': addToolCard(msg); break;
     case 'tool_result': updateToolCard(msg); break;
     case 'permission_request': addPermission(msg); break;
-    case 'result': setBusy(false, cid); if (msg.costUsd != null) updateCostBar(msg.costUsd, cid); if (onActive) setStatus(msg.ok ? '完成' : '出错'); break;
+    case 'result': setBusy(false, cid); if (msg.costUsd != null) updateCostBar(msg.costUsd, cid); if (onActive) setStatus(msg.ok ? '完成' : '出错'); flushQueue(cid); break;
     case 'error': addMsg('error', escapeHtml(msg.message || '未知错误')); setBusy(false, cid); break;
     case 'user_echo': addMsg('user', escapeHtml(msg.text || '')); setBusy(true, cid); break;
     case 'diagnostics': renderDiagnostics(msg.items); break;
@@ -1267,25 +1270,63 @@ function exportSession() {
 }
 
 let lastSentMsg = '';
+// 插入模式:回答中再发消息时,'queue'=排队待当前回答结束、'steer'=中断当前改按新输入回复。
+let insertMode = (function(){ try { return localStorage.getItem('mc-insert-mode') || 'queue'; } catch(e){ return 'queue'; } })();
+
+// 便签 + 输入框文字合并成一条消息(便签在后,带编号+锚点)。
+function buildFinalText() {
+  const text = $('input').value.trim();
+  if (!pendingNotes.length) return text;
+  const lines = pendingNotes.map((n, i) => (i + 1) + '. ' + (n.snippet ? '针对「' + n.snippet + '」：' : '') + n.question);
+  const block = '我对你前面的回答有 ' + pendingNotes.length + ' 处批注，请逐条编号回答：\n' + lines.join('\n');
+  return text ? text + '\n\n' + block : block;
+}
+function clearComposer() {
+  $('input').value = ''; $('input').style.height = 'auto';
+  pendingNotes = []; renderNotesArea();   // 便签清空(高亮保留作"已问过"痕迹)
+}
+// 真正把一条消息发往后端(渲染用户气泡 + 置忙 + toMatlab)。
+function dispatchMessage(finalText, convId) {
+  const cid = convId || activeConv;
+  useRender(cid);
+  addUserMessage(finalText || '（见附件）');
+  setBusy(true, cid);
+  toMatlab('user_message', { id: nextId(), text: finalText || '请查看我附加的图片/文件并据此回答。', convId: cid });
+}
+// 中断当前回答(供「引导」模式与 Esc 用)。
+function interruptCurrent() {
+  if (!activeTab() || !activeTab().busy) return;
+  toMatlab('interrupt', {});
+  setBusy(false, activeConv);
+  setStatus('已中断');
+}
 function sendMessage() {
   const text = $('input').value.trim();
-  if (activeTab().busy) return;
   if (!text && !pendingNotes.length && !attachCount) return;   // 无文本、无便签、无附件才拦
-  // 便签 + 输入框文字合并成一条消息(便签在后,带编号+锚点)。
-  let finalText = text;
-  if (pendingNotes.length) {
-    const lines = pendingNotes.map((n, i) => (i + 1) + '. ' + (n.snippet ? '针对「' + n.snippet + '」：' : '') + n.question);
-    const block = '我对你前面的回答有 ' + pendingNotes.length + ' 处批注，请逐条编号回答：\n' + lines.join('\n');
-    finalText = text ? text + '\n\n' + block : block;
-  }
+  const finalText = buildFinalText();
   if (text) lastSentMsg = text;
-  useRender(activeConv);
-  addUserMessage(finalText || '（见附件）');
-  $('input').value = '';
-  $('input').style.height = 'auto';
-  pendingNotes = []; renderNotesArea();   // 便签已随消息发出 → 清空(高亮保留作"已问过"痕迹)
-  setBusy(true, activeConv);
-  toMatlab('user_message', { id: nextId(), text: finalText || '请查看我附加的图片/文件并据此回答。' });
+  const t = activeTab();
+  if (t.busy) {
+    if (insertMode === 'steer') {
+      // 引导:中断当前 → 略等中断落地 → 发新输入(按新需求回复)。
+      interruptCurrent(); clearComposer();
+      setStatus('已中断，按新需求回复…');
+      setTimeout(() => dispatchMessage(finalText, t.convId), 140);
+    } else {
+      // 队列:排队,等当前回答结束后自动发出(见 flushQueue)。
+      t.queue.push(finalText); clearComposer();
+      setStatus('已排队（' + t.queue.length + '），当前回答结束后自动发送');
+    }
+    return;
+  }
+  clearComposer();
+  dispatchMessage(finalText, t.convId);
+}
+// 一轮回答结束后,若该会话有排队消息,自动发出下一条。
+function flushQueue(convId) {
+  const t = tabs[convId];
+  if (!t || t.busy || !t.queue || !t.queue.length) return;
+  dispatchMessage(t.queue.shift(), convId);
 }
 function quickChat(label, text) {
   if (activeTab().busy) return;
@@ -1311,7 +1352,29 @@ document.addEventListener('mousedown', (e) => {
 });
 
 $('send').onclick = sendMessage;
-$('stop').onclick = () => { toMatlab('interrupt', {}); setBusy(false, activeConv); setStatus('已停止'); };
+$('stop').onclick = interruptCurrent;
+
+// 插入模式按钮:点击切换 队列 ⏳ / 引导 ⚡(持久化 + 视觉)。
+function reflectInsertMode() {
+  const b = $('tb-insert'); if (!b) return;
+  const steer = insertMode === 'steer';
+  b.textContent = steer ? '⚡' : '⏳';
+  b.classList.toggle('steer', steer);
+}
+$('tb-insert').onclick = () => {
+  insertMode = insertMode === 'steer' ? 'queue' : 'steer';
+  try { localStorage.setItem('mc-insert-mode', insertMode); } catch (e) {}
+  reflectInsertMode();
+  setStatus(insertMode === 'steer' ? '插入模式：⚡ 引导（回答中再发将中断当前）' : '插入模式：⏳ 队列（回答中再发将排队）');
+};
+reflectInsertMode();
+
+// 回答进行中按 Esc → 立即中断(弹层优先:批注框/斜杠面板的 Esc 已各自处理,不会走到这里)。
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented) return;
+  if (!$('annotate-pop').classList.contains('hidden')) return;   // 批注框开着 → 不中断
+  if (activeTab() && activeTab().busy) { e.preventDefault(); interruptCurrent(); }
+});
 $('btn-diagnose').onclick = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '🩺 诊断当前报错'); setBusy(true, activeConv); toMatlab('diagnose_error', {}); } };
 $('btn-explain').onclick = () => quickChat('📖 解释选中', '请解释选中的代码或选中的 Simulink block 的作用与原理;若没有选中,则解释当前文件/模型的整体功能。');
 $('btn-comment').onclick = () => quickChat('💬 给选中加注释', '请给选中的代码添加清晰的中文注释,保持逻辑和缩进不变,只返回加注释后的代码。');
