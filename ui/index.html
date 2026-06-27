@@ -192,27 +192,20 @@
   .ma-btn:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); }
   .row.user .ma-btn { border-color: rgba(255,255,255,.18); color: #cdd9e8; }
   .row.user .ma-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
-  /* 批量追问:气泡内联输入框 + 底部队列浮条 */
-  .followup-input { display: flex; gap: 6px; margin-top: 8px; align-items: flex-start; }
-  .followup-input textarea { flex: 1; background: var(--surface); border: 1px solid var(--brand2); color: var(--text);
-                             border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12px; resize: none; outline: none; min-height: 34px; }
-  .fi-snippet { font-size: 10px; color: var(--brand1); margin-bottom: 4px; line-height: 1.3; }
+  /* 批注:选中气泡文字右键 → 浮动批注框 → 汇总进输入框 */
+  .annotate-pop { position: fixed; z-index: 2000; width: 290px; background: var(--surface); border: 1px solid var(--brand2);
+                  border-radius: 11px; padding: 11px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  .annotate-pop.hidden { display: none; }
+  .ap-snippet { font-size: 10.5px; color: var(--brand1); line-height: 1.4; margin-bottom: 7px;
+                max-height: 50px; overflow: hidden; border-left: 2px solid var(--brand2); padding-left: 7px; }
+  .ap-input { width: 100%; box-sizing: border-box; background: var(--surface2); border: 1px solid var(--border2); color: var(--text);
+              border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 12px; resize: none; outline: none; min-height: 42px; }
+  .ap-input:focus { border-color: var(--brand2); }
+  .ap-row { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
   .fi-btn { background: var(--surface3); border: 1px solid var(--border2); color: var(--text); border-radius: 7px;
-            padding: 4px 9px; font-size: 11px; cursor: pointer; white-space: nowrap; }
-  .fi-btn:hover { border-color: var(--brand2); }
-  .followup-bar { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 8px 10px; margin-bottom: 7px;
-                  border: 1px solid var(--brand2); border-radius: 10px; background: var(--surface2); }
-  .followup-bar.hidden { display: none; }
-  .fu-title { font-size: 11px; color: var(--brand1); font-weight: 600; white-space: nowrap; }
-  .fu-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 230px; background: var(--surface3);
-             border: 1px solid var(--border2); border-radius: 999px; padding: 2px 4px 2px 9px; font-size: 10.5px; color: var(--text2); }
-  .fu-chip .fu-q { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fu-chip .fu-x { cursor: pointer; opacity: .5; padding: 0 3px; } .fu-chip .fu-x:hover { opacity: 1; color: var(--err); }
-  .fu-send { margin-left: auto; background: linear-gradient(135deg, var(--brand1), var(--brand2)); color: #fff; border: none;
-             border-radius: 8px; padding: 5px 13px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-  .fu-clear { background: transparent; border: 1px solid var(--border2); color: var(--muted); border-radius: 8px;
-              padding: 5px 10px; font-size: 11px; cursor: pointer; white-space: nowrap; }
-  .fu-clear:hover { color: var(--text); }
+            padding: 4px 10px; font-size: 11px; cursor: pointer; white-space: nowrap; }
+  .fi-btn:hover { border-color: var(--brand2); color: var(--text); }
+  .fi-btn.primary { background: linear-gradient(135deg, var(--brand1), var(--brand2)); border-color: transparent; color: #fff; font-weight: 600; }
   /* Fork 分支区(嵌在卡片内) */
   .fork-zone { margin-top: 10px; border-top: 1px dashed var(--brand2); padding-top: 8px; }
   .fork-head { font-size: 10.5px; color: var(--brand1); font-weight: 600; margin-bottom: 7px; }
@@ -479,7 +472,7 @@
       <button id="btn-refresh" data-tip="刷新上下文:手动重新读取并刷新顶栏显示的当前文件/模型/选中 block/工作区变量/最近报错状态。切换了模型或选择后想让顶栏立刻更新时用它。">⟳ 刷新上下文</button>
       <button id="btn-clear" data-tip="清屏:清空当前聊天记录的显示(不影响后端会话历史,也不会改动你的文件或模型)。">🗑 清屏</button>
     </div>
-    <div id="followup-bar" class="followup-bar hidden"></div>
+    <div id="annotate-pop" class="annotate-pop hidden"></div>
     <div class="inputrow">
       <textarea id="input" placeholder="问点什么… (Enter 发送，Shift+Enter 换行，/ 斜杠命令，Ctrl+K 命令面板)"></textarea>
       <button id="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>发送</button>
@@ -813,93 +806,73 @@ function resetToEdit(row, text) {
   inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
   setStatus('已撤回，改完再发送');
 }
-// 给完成的助手气泡挂「⧉ 复制 / ✚ 追问 / ⑂ Fork」。
+// 给完成的助手气泡挂「⧉ 复制 / ✚ 批注 / ⑂ Fork」。
 function addBubbleActions(id) {
   const b = bubbles[id];
   if (!b || !b.el || b.el.querySelector('.msg-actions')) return;
   attachActions(b.el, [
     { label: '⧉ 复制', on: () => copyText(b.raw) },
-    { label: '✚ 追问', on: () => openFollowupInput(b.el, id) },
+    { label: '✚ 批注', on: () => annotateFromBubble(b.el) },
     { label: '⑂ Fork', on: () => startFork(b) },
   ]);
 }
 
-// ── 批量追问(便利贴式)──────────────────────────────────────────────────────
-// 看完长回答后,在任意气泡上贴若干追问(可选中某段文字作锚点),最后一键合并成一条消息发出,
-// 让 AI 一次回答全部。不打断阅读流,也避免 N 次往返与上下文重建。
-let pendingFollowups = [];   // [{ snippet, question }]
+// ── 选区批注 → 汇总进输入框 ─────────────────────────────────────────────────
+// 看完长回答后,在气泡里【选中有疑问的文字 → 右键】弹批注框(也可点「✚ 批注」),
+// 输入针对这段的问题 → 追加到下方输入框。可连续标注多段、汇总成一条,审阅/编辑后一次发送。
+// 位置感知:每条批注都带「针对『选中文字』」锚点,AI 知道问题针对哪段。
 
-// 在气泡下方打开内联追问输入框;若气泡内有文字选区,用它作位置锚点。
-function openFollowupInput(bubbleEl, msgId) {
-  if (bubbleEl.querySelector('.followup-input')) { bubbleEl.querySelector('.followup-input textarea').focus(); return; }
-  let snippet = '';
-  const sel = window.getSelection();
-  if (sel && !sel.isCollapsed && sel.rangeCount) {
-    const r = sel.getRangeAt(0);
-    if (bubbleEl.contains(r.commonAncestorContainer)) snippet = sel.toString().trim().replace(/\s+/g, ' ').slice(0, 80);
-  }
-  const box = document.createElement('div');
-  box.className = 'followup-input';
-  const col = document.createElement('div'); col.style.flex = '1';
-  if (snippet) { const s = document.createElement('div'); s.className = 'fi-snippet'; s.textContent = '针对：「' + snippet + '」'; col.appendChild(s); }
-  const ta = document.createElement('textarea');
-  ta.placeholder = snippet ? '对这段追问…（Enter 加入队列，Esc 取消）' : '追问这条回答…（Enter 加入队列，Esc 取消）';
-  ta.rows = 1; col.appendChild(ta);
-  const ok = document.createElement('button'); ok.className = 'fi-btn'; ok.textContent = '✓ 加入';
-  const cancel = document.createElement('button'); cancel.className = 'fi-btn'; cancel.textContent = '✕';
-  box.appendChild(col); box.appendChild(ok); box.appendChild(cancel);
-  bubbleEl.appendChild(box); ta.focus();
-  const commit = () => { const q = ta.value.trim(); if (q) addFollowup(snippet, q); box.remove(); };
-  ok.onclick = commit;
-  cancel.onclick = () => box.remove();
+// 把一条批注汇总进下方输入框(已有内容则换行追加)。
+function appendAnnotation(snippet, question) {
+  const inp = $('input');
+  const line = (snippet ? '针对「' + snippet + '」：' : '') + question;
+  inp.value = inp.value.trim() ? inp.value.trim() + '\n' + line : line;
+  inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
+  inp.focus();
+  setStatus('已加入批注，可继续标注或直接发送');
+}
+
+// 在 (x,y) 处弹浮动批注框,确认后把批注汇总进输入框。
+function openAnnotatePopup(x, y, snippet) {
+  const pop = $('annotate-pop'); pop.innerHTML = '';
+  if (snippet) { const s = document.createElement('div'); s.className = 'ap-snippet'; s.textContent = '针对：「' + snippet + '」'; pop.appendChild(s); }
+  const ta = document.createElement('textarea'); ta.className = 'ap-input'; ta.rows = 2;
+  ta.placeholder = '对这段的疑问…（Enter 加入输入框，Esc 取消）';
+  const row = document.createElement('div'); row.className = 'ap-row';
+  const cancel = document.createElement('button'); cancel.className = 'fi-btn'; cancel.textContent = '取消';
+  const ok = document.createElement('button'); ok.className = 'fi-btn primary'; ok.textContent = '✓ 加入输入框';
+  row.appendChild(cancel); row.appendChild(ok);
+  pop.appendChild(ta); pop.appendChild(row);
+  pop.classList.remove('hidden');
+  const w = pop.offsetWidth || 290, h = pop.offsetHeight || 130;
+  pop.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 12)) + 'px';
+  pop.style.top  = Math.max(8, Math.min(y, window.innerHeight - h - 12)) + 'px';
+  ta.focus();
+  const commit = () => { const q = ta.value.trim(); if (q) appendAnnotation(snippet, q); closeAnnotatePopup(); };
+  ok.onclick = commit; cancel.onclick = closeAnnotatePopup;
   ta.addEventListener('keydown', (e) => {
-    e.stopPropagation();   // 别触发全局输入框快捷键(Ctrl+K 等)
+    e.stopPropagation();   // 别触发全局输入框快捷键
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commit(); }
-    else if (e.key === 'Escape') { e.preventDefault(); box.remove(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeAnnotatePopup(); }
   });
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 90) + 'px'; });
+}
+function closeAnnotatePopup() { const p = $('annotate-pop'); p.classList.add('hidden'); p.innerHTML = ''; }
+
+// 取气泡内的文字选区作锚点(无选区返回空)。
+function selectionSnippetIn(bubbleEl) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return '';
+  const r = sel.getRangeAt(0);
+  if (!bubbleEl.contains(r.commonAncestorContainer)) return '';
+  return sel.toString().trim().replace(/\s+/g, ' ').slice(0, 80);
 }
 
-function addFollowup(snippet, question) {
-  pendingFollowups.push({ snippet, question });
-  renderFollowupBar();
-  setStatus('已加入追问队列（' + pendingFollowups.length + '）');
-}
-
-function renderFollowupBar() {
-  const bar = $('followup-bar');
-  if (!pendingFollowups.length) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
-  bar.classList.remove('hidden'); bar.innerHTML = '';
-  const title = document.createElement('span'); title.className = 'fu-title';
-  title.textContent = '📝 待发送追问 (' + pendingFollowups.length + ')'; bar.appendChild(title);
-  pendingFollowups.forEach((f, i) => {
-    const chip = document.createElement('span'); chip.className = 'fu-chip';
-    const q = document.createElement('span'); q.className = 'fu-q';
-    q.textContent = (i + 1) + '. ' + f.question;
-    q.title = (f.snippet ? '针对：「' + f.snippet + '」\n' : '') + f.question;
-    const x = document.createElement('span'); x.className = 'fu-x'; x.textContent = '✕';
-    x.onclick = () => { pendingFollowups.splice(i, 1); renderFollowupBar(); };
-    chip.appendChild(q); chip.appendChild(x); bar.appendChild(chip);
-  });
-  const send = document.createElement('button'); send.className = 'fu-send';
-  send.textContent = '📤 一键发送全部'; send.onclick = submitAllFollowups;
-  const clear = document.createElement('button'); clear.className = 'fu-clear';
-  clear.textContent = '清空'; clear.onclick = () => { pendingFollowups = []; renderFollowupBar(); };
-  bar.appendChild(send); bar.appendChild(clear);
-}
-
-function submitAllFollowups() {
-  if (!pendingFollowups.length) return;
-  if (activeTab().busy) { setStatus('上一轮进行中，稍后再发追问'); return; }
-  const n = pendingFollowups.length;
-  const lines = pendingFollowups.map((f, i) =>
-    (i + 1) + '. ' + (f.snippet ? '（针对你提到的「' + f.snippet + '」）' : '') + f.question);
-  const text = '我对你前面的回答有 ' + n + ' 个追问，请逐条编号回答：\n\n' + lines.join('\n');
-  useRender(activeConv);
-  addUserMessage(text);
-  pendingFollowups = []; renderFollowupBar();
-  setBusy(true, activeConv);
-  toMatlab('user_message', { id: nextId(), text });
+// 「✚ 批注」按钮:有选区用选区作锚点,无选区则针对整条(锚点用气泡开头摘要)。
+function annotateFromBubble(bubbleEl) {
+  let snippet = selectionSnippetIn(bubbleEl);
+  if (!snippet) snippet = (bubbleEl.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  const rect = bubbleEl.getBoundingClientRect();
+  openAnnotatePopup(rect.left + 24, Math.min(rect.bottom - 30, window.innerHeight - 160), snippet);
 }
 
 // Fork:在该卡片内开一条「以本卡片内容为种子」的独立子会话,回答嵌在卡片里。
@@ -1254,6 +1227,21 @@ function quickChat(label, text) {
   setBusy(true, activeConv);
   toMatlab('user_message', { id: nextId(), text });
 }
+
+// 助手气泡内选中文字 → 右键 → 弹批注框(无选区时放行系统右键菜单)。
+$('panes').addEventListener('contextmenu', (e) => {
+  const bubble = e.target.closest && e.target.closest('.bubble.assistant');
+  if (!bubble) return;
+  const snippet = selectionSnippetIn(bubble);
+  if (!snippet) return;
+  e.preventDefault();
+  openAnnotatePopup(e.clientX, e.clientY, snippet);
+});
+// 点批注框外部 / 按 Esc → 关闭。
+document.addEventListener('mousedown', (e) => {
+  const pop = $('annotate-pop');
+  if (!pop.classList.contains('hidden') && !pop.contains(e.target)) closeAnnotatePopup();
+});
 
 $('send').onclick = sendMessage;
 $('stop').onclick = () => { toMatlab('interrupt', {}); setBusy(false, activeConv); setStatus('已停止'); };
