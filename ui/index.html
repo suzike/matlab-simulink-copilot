@@ -199,16 +199,20 @@
   .ma-btn.act-annot:hover { background: rgba(245,158,11,.16); border-color: #f59e0b; color: #f59e0b; }
   .ma-btn.act-fork { color: #c084fc; border-color: rgba(168,85,247,.42); }
   .ma-btn.act-fork:hover { background: rgba(168,85,247,.16); border-color: var(--brand2); color: #d8b4fe; }
-  /* 待发送队列:右上角浮动卡片(队列模式回答中再发,在这里候着,依次自动发出) */
-  .queue-panel { position: fixed; top: 48px; right: 12px; z-index: 1500; width: 240px;
-                 display: flex; flex-direction: column; gap: 6px; }
+  /* 待发送队列:右下角浮动卡片(贴近输入区;队列模式回答中再发,在这里候着,依次自动发出) */
+  .queue-panel { position: fixed; bottom: 155px; right: 14px; z-index: 1500; width: 240px;
+                 max-height: 45vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
   .queue-panel.hidden { display: none; }
   .qp-title { font-size: 10.5px; color: #f59e0b; font-weight: 700; padding: 0 2px; }
-  .queue-card { display: flex; align-items: center; gap: 6px; background: var(--surface2);
-                border: 1px solid var(--border2); border-left: 3px solid #f59e0b; border-radius: 8px;
-                padding: 6px 8px; box-shadow: 0 6px 18px rgba(0,0,0,.32); }
-  .qc-n { font-size: 10px; color: #f59e0b; font-weight: 700; flex: 0 0 auto; }
-  .qc-text { flex: 1; font-size: 11px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 待发送卡片【灰显】:虚线边 + 淡化 + 灰字,明确「未发出、排队中」,与主会话区分;悬停恢复清晰 */
+  .queue-card { display: flex; align-items: center; gap: 6px; background: var(--surface);
+                border: 1px dashed var(--border2); border-left: 3px dashed #f59e0b; border-radius: 8px;
+                padding: 6px 8px; opacity: .62; filter: saturate(.6); transition: opacity .12s, filter .12s;
+                box-shadow: 0 6px 18px rgba(0,0,0,.28); }
+  .queue-card:hover { opacity: 1; filter: none; }
+  .qc-n { font-size: 10px; color: var(--faint); font-weight: 700; flex: 0 0 auto; }
+  .qc-text { flex: 1; font-size: 11px; color: var(--faint); font-style: italic;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .qc-x { cursor: pointer; opacity: .5; font-size: 11px; flex: 0 0 auto; } .qc-x:hover { opacity: 1; color: var(--err); }
   /* 批注:选中气泡文字右键 → 浮动批注框 → 汇总进输入框 */
   .annotate-pop { position: fixed; z-index: 2000; width: 290px; background: var(--surface); border: 1px solid var(--brand2);
