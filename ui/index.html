@@ -209,6 +209,17 @@
   /* 已批注的文字段:持久黄色高亮,标识追问针对哪段(亮/暗主题均可读) */
   mark.annot-mark { background: rgba(250, 204, 21, .32); color: inherit; border-radius: 3px; padding: 0 1px;
                     box-shadow: inset 0 0 0 1px rgba(250, 204, 21, .35); }
+  /* 待发送批注:便签卡片(贴在输入框上方,黄色便利贴风格,呼应高亮色)*/
+  .notes-area { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; }
+  .notes-area:empty { display: none; }
+  .sticky-note { position: relative; max-width: 230px; background: rgba(250, 204, 21, .1);
+                 border: 1px solid rgba(250, 204, 21, .35); border-left: 3px solid #facc15;
+                 border-radius: 7px; padding: 6px 22px 6px 9px; line-height: 1.35; }
+  .sn-anchor { font-size: 9.5px; color: #d9a40f; margin-bottom: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-theme=light] .sn-anchor { color: #a9780a; }
+  .sn-q { font-size: 11.5px; color: var(--text); word-break: break-word; }
+  .sn-x { position: absolute; top: 4px; right: 5px; font-size: 11px; cursor: pointer; opacity: .5; line-height: 1; }
+  .sn-x:hover { opacity: 1; color: var(--err); }
   /* Fork 分支区(嵌在卡片内) */
   .fork-zone { margin-top: 10px; border-top: 1px dashed var(--brand2); padding-top: 8px; }
   .fork-head { font-size: 10.5px; color: var(--brand1); font-weight: 600; margin-bottom: 7px; }
@@ -476,6 +487,7 @@
       <button id="btn-clear" data-tip="清屏:清空当前聊天记录的显示(不影响后端会话历史,也不会改动你的文件或模型)。">🗑 清屏</button>
     </div>
     <div id="annotate-pop" class="annotate-pop hidden"></div>
+    <div id="notes-area" class="notes-area"></div>
     <div class="inputrow">
       <textarea id="input" placeholder="问点什么… (Enter 发送，Shift+Enter 换行，/ 斜杠命令，Ctrl+K 命令面板)"></textarea>
       <button id="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>发送</button>
@@ -835,25 +847,45 @@ function addBubbleActions(id) {
 // 输入针对这段的问题 → 追加到下方输入框。可连续标注多段、汇总成一条,审阅/编辑后一次发送。
 // 位置感知:每条批注都带「针对『选中文字』」锚点,AI 知道问题针对哪段。
 
-// 把一条批注汇总进下方输入框(已有内容则换行追加)。
-function appendAnnotation(snippet, question) {
-  const inp = $('input');
-  const line = (snippet ? '针对「' + snippet + '」：' : '') + question;
-  inp.value = inp.value.trim() ? inp.value.trim() + '\n' + line : line;
-  inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
-  inp.focus();
-  setStatus('已加入批注，可继续标注或直接发送');
+// 一条批注 = 一张便签,贴在输入框上方;发送时与输入框文字合并成一条消息(见 sendMessage)。
+let pendingNotes = [];   // [{ snippet, question, mark }]
+
+function addNote(snippet, question, mark) {
+  pendingNotes.push({ snippet, question, mark: mark || null });
+  renderNotesArea();
+  setStatus('已贴便签（' + pendingNotes.length + '），写完点发送一起问');
 }
 
-// 把一个 Range 包裹成黄色高亮 <mark>,持久标识「这段被批注过」。
+function renderNotesArea() {
+  const area = $('notes-area'); area.innerHTML = '';
+  pendingNotes.forEach((n, i) => {
+    const note = document.createElement('div'); note.className = 'sticky-note';
+    if (n.snippet) { const a = document.createElement('div'); a.className = 'sn-anchor'; a.textContent = '📌 ' + n.snippet; a.title = n.snippet; note.appendChild(a); }
+    const q = document.createElement('div'); q.className = 'sn-q'; q.textContent = n.question; note.appendChild(q);
+    const x = document.createElement('span'); x.className = 'sn-x'; x.textContent = '✕'; x.title = '删除这条批注';
+    x.onclick = () => { unwrapMark(n.mark); pendingNotes.splice(i, 1); renderNotesArea(); };   // 删便签 → 同时撤销高亮
+    note.appendChild(x); area.appendChild(note);
+  });
+}
+
+// 解除一段高亮(把 <mark> 内容摊回原位)。删便签时用。
+function unwrapMark(mark) {
+  if (!mark || !mark.parentNode) return;
+  const p = mark.parentNode;
+  while (mark.firstChild) p.insertBefore(mark.firstChild, mark);
+  p.removeChild(mark); if (p.normalize) p.normalize();
+}
+
+// 把一个 Range 包裹成黄色高亮 <mark>,持久标识「这段被批注过」,返回该 mark 元素。
 // 选区在右键那一刻就 cloneRange 保存好,到这里 DOM 未变、Range 仍有效。
 function highlightRange(range) {
-  if (!range) return;
+  if (!range) return null;
   try {
     const mark = document.createElement('mark'); mark.className = 'annot-mark';
     try { range.surroundContents(mark); }                              // 选区在单一节点内
     catch (e) { mark.appendChild(range.extractContents()); range.insertNode(mark); }  // 跨节点兜底
     const sel = window.getSelection(); if (sel) sel.removeAllRanges(); // 去掉蓝色选区,只留黄色高亮
+    return mark;
   } catch (e) {}
 }
 
@@ -873,7 +905,7 @@ function openAnnotatePopup(x, y, snippet, range) {
   pop.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 12)) + 'px';
   pop.style.top  = Math.max(8, Math.min(y, window.innerHeight - h - 12)) + 'px';
   ta.focus();
-  const commit = () => { const q = ta.value.trim(); if (q) { appendAnnotation(snippet, q); highlightRange(range); } closeAnnotatePopup(); };
+  const commit = () => { const q = ta.value.trim(); if (q) { const mark = highlightRange(range); addNote(snippet, q, mark); } closeAnnotatePopup(); };
   ok.onclick = commit; cancel.onclick = closeAnnotatePopup;
   ta.addEventListener('keydown', (e) => {
     e.stopPropagation();   // 别触发全局输入框快捷键
@@ -1238,14 +1270,22 @@ let lastSentMsg = '';
 function sendMessage() {
   const text = $('input').value.trim();
   if (activeTab().busy) return;
-  if (!text && !attachCount) return;            // 无文本也无附件才拦
+  if (!text && !pendingNotes.length && !attachCount) return;   // 无文本、无便签、无附件才拦
+  // 便签 + 输入框文字合并成一条消息(便签在后,带编号+锚点)。
+  let finalText = text;
+  if (pendingNotes.length) {
+    const lines = pendingNotes.map((n, i) => (i + 1) + '. ' + (n.snippet ? '针对「' + n.snippet + '」：' : '') + n.question);
+    const block = '我对你前面的回答有 ' + pendingNotes.length + ' 处批注，请逐条编号回答：\n' + lines.join('\n');
+    finalText = text ? text + '\n\n' + block : block;
+  }
   if (text) lastSentMsg = text;
   useRender(activeConv);
-  addUserMessage(text || '（见附件）');
+  addUserMessage(finalText || '（见附件）');
   $('input').value = '';
   $('input').style.height = 'auto';
+  pendingNotes = []; renderNotesArea();   // 便签已随消息发出 → 清空(高亮保留作"已问过"痕迹)
   setBusy(true, activeConv);
-  toMatlab('user_message', { id: nextId(), text: text || '请查看我附加的图片/文件并据此回答。' });
+  toMatlab('user_message', { id: nextId(), text: finalText || '请查看我附加的图片/文件并据此回答。' });
 }
 function quickChat(label, text) {
   if (activeTab().busy) return;
