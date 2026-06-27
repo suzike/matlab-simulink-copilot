@@ -192,9 +192,24 @@
   .ma-btn:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); }
   .row.user .ma-btn { border-color: rgba(255,255,255,.18); color: #cdd9e8; }
   .row.user .ma-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
-  /* 排队中的用户消息:淡化 + ⏳ 角标,等当前回答结束后自动发出 */
-  .row.queued .bubble { opacity: .55; }
-  .row.queued .bubble::after { content: ' ⏳ 排队中'; font-size: 10px; color: var(--warn); white-space: nowrap; }
+  /* 气泡操作按钮按功能配色区分:复制=青 / 批注=黄(呼应高亮) / Fork=紫 */
+  .ma-btn.act-copy { color: var(--tool); border-color: color-mix(in srgb, var(--tool) 40%, transparent); }
+  .ma-btn.act-copy:hover { background: color-mix(in srgb, var(--tool) 14%, transparent); border-color: var(--tool); color: var(--tool); }
+  .ma-btn.act-annot { color: #e0a92b; border-color: rgba(245,158,11,.45); }
+  .ma-btn.act-annot:hover { background: rgba(245,158,11,.16); border-color: #f59e0b; color: #f59e0b; }
+  .ma-btn.act-fork { color: #c084fc; border-color: rgba(168,85,247,.42); }
+  .ma-btn.act-fork:hover { background: rgba(168,85,247,.16); border-color: var(--brand2); color: #d8b4fe; }
+  /* 待发送队列:右上角浮动卡片(队列模式回答中再发,在这里候着,依次自动发出) */
+  .queue-panel { position: fixed; top: 48px; right: 12px; z-index: 1500; width: 240px;
+                 display: flex; flex-direction: column; gap: 6px; }
+  .queue-panel.hidden { display: none; }
+  .qp-title { font-size: 10.5px; color: #f59e0b; font-weight: 700; padding: 0 2px; }
+  .queue-card { display: flex; align-items: center; gap: 6px; background: var(--surface2);
+                border: 1px solid var(--border2); border-left: 3px solid #f59e0b; border-radius: 8px;
+                padding: 6px 8px; box-shadow: 0 6px 18px rgba(0,0,0,.32); }
+  .qc-n { font-size: 10px; color: #f59e0b; font-weight: 700; flex: 0 0 auto; }
+  .qc-text { flex: 1; font-size: 11px; color: var(--text2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qc-x { cursor: pointer; opacity: .5; font-size: 11px; flex: 0 0 auto; } .qc-x:hover { opacity: 1; color: var(--err); }
   /* 批注:选中气泡文字右键 → 浮动批注框 → 汇总进输入框 */
   .annotate-pop { position: fixed; z-index: 2000; width: 290px; background: var(--surface); border: 1px solid var(--brand2);
                   border-radius: 11px; padding: 11px; box-shadow: 0 10px 30px rgba(0,0,0,.45); }
@@ -514,8 +529,9 @@
     <div id="audit-pop" class="popup hidden"></div>
   </footer>
   <div id="tip"></div>
-  <!-- 批注浮框:必须放在 footer 外(footer 的 backdrop-filter 会创建包含块,使内部 position:fixed 相对 footer 而非视口) -->
+  <!-- 批注浮框 / 队列面板:必须放在 footer 外(footer 的 backdrop-filter 会创建包含块,使内部 position:fixed 相对 footer 而非视口) -->
   <div id="annotate-pop" class="annotate-pop hidden"></div>
+  <div id="queue-panel" class="queue-panel hidden"></div>
 
 <script>
 // ── 内联 SVG 图标 ───────────────────────────────────────────────────────────
@@ -808,7 +824,8 @@ function attachActions(bubble, buttons) {
   bar.className = 'msg-actions';
   buttons.forEach((b) => {
     const el = document.createElement('button');
-    el.className = 'ma-btn'; el.innerHTML = b.label;
+    el.className = 'ma-btn' + (b.cls ? ' ' + b.cls : '');
+    el.innerHTML = b.label;
     el.onclick = b.on;
     bar.appendChild(el);
   });
@@ -838,9 +855,9 @@ function resetToEdit(row, text) {
 function attachBubbleActions(el, raw) {
   if (!el || el.querySelector('.msg-actions')) return;
   attachActions(el, [
-    { label: '⧉ 复制', on: () => copyText(raw) },
-    { label: '✚ 批注', on: () => annotateFromBubble(el) },
-    { label: '⑂ Fork', on: () => startFork({ el, raw }) },
+    { label: '⧉ 复制', cls: 'act-copy', on: () => copyText(raw) },
+    { label: '✚ 批注', cls: 'act-annot', on: () => annotateFromBubble(el) },
+    { label: '⑂ Fork', cls: 'act-fork', on: () => startFork({ el, raw }) },
   ]);
 }
 // 流式路径:assistant_stop 时按 id 从 bubbles 反查并挂。
@@ -1312,36 +1329,61 @@ function sendMessage() {
   const finalText = buildFinalText();
   if (text) lastSentMsg = text;
   const t = activeTab();
-  // 无论哪种模式,都【立即在对话区显示用户气泡】,让你看到自己发了什么。
-  useRender(t.convId);
-  const bubble = addUserMessage(finalText || '（见附件）');
-  const row = bubble && bubble.closest ? bubble.closest('.row') : null;
-  clearComposer();
 
-  if (t.busy) {
-    if (insertMode === 'steer') {
-      // 引导:中断当前 → 略等中断落地 → 发新输入(气泡已显示)。
-      interruptCurrent();
-      setStatus('已中断，按新需求回复…');
-      setTimeout(() => sendToBackend(finalText, t.convId), 140);
-    } else {
-      // 队列:气泡标「排队中」,存入队列;当前回答结束后由 flushQueue 去标并发出。
-      if (row) row.classList.add('queued');
-      t.queue.push({ finalText, row });
-      setStatus('已排队（' + t.queue.length + '），当前回答结束后自动发送');
-    }
+  // 队列模式 + 回答中:不挤进对话流,显示在【右上角队列区】候着,当前回答结束后依次自动发(见 flushQueue)。
+  if (t.busy && insertMode === 'queue') {
+    clearComposer();
+    t.queue.push(finalText);
+    renderQueuePanel();
+    setStatus('已排队（' + t.queue.length + '），当前回答结束后自动发送');
     return;
   }
-  sendToBackend(finalText, t.convId);
+
+  // 立即 / 引导:进对话流显示用户气泡。
+  useRender(t.convId);
+  addUserMessage(finalText || '（见附件）');
+  clearComposer();
+
+  if (t.busy && insertMode === 'steer') {
+    // 引导:中断当前 → 略等中断落地 → 发新输入,优先执行。
+    interruptCurrent();
+    setStatus('已中断，优先执行新指令…');
+    setTimeout(() => sendToBackend(finalText, t.convId), 140);
+  } else {
+    sendToBackend(finalText, t.convId);
+  }
 }
-// 一轮回答结束后,若该会话有排队消息,去掉排队标记并发出下一条。
+// 一轮回答结束后,若该会话有排队消息,取队首进对话流并发出。
 function flushQueue(convId) {
   const t = tabs[convId];
   if (!t || t.busy || !t.queue || !t.queue.length) return;
-  const item = t.queue.shift();
-  if (item.row) item.row.classList.remove('queued');
+  const finalText = t.queue.shift();
+  renderQueuePanel();
   useRender(convId);
-  sendToBackend(item.finalText, convId);
+  addUserMessage(finalText);     // 轮到了 → 进对话流显示
+  sendToBackend(finalText, convId);
+}
+// 渲染右上角待发送队列(显示当前活动标签的队列;每条可单独删)。
+function renderQueuePanel() {
+  const panel = $('queue-panel');
+  const t = activeTab();
+  const q = (t && t.queue) || [];
+  panel.innerHTML = '';
+  if (!q.length) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  const title = document.createElement('div'); title.className = 'qp-title';
+  title.textContent = '⏳ 待发送队列 (' + q.length + ')';
+  panel.appendChild(title);
+  q.forEach((text, i) => {
+    const card = document.createElement('div'); card.className = 'queue-card';
+    const n = document.createElement('span'); n.className = 'qc-n'; n.textContent = (i + 1) + '.';
+    const body = document.createElement('div'); body.className = 'qc-text';
+    body.textContent = text.replace(/\n+/g, ' '); body.title = text;
+    const x = document.createElement('span'); x.className = 'qc-x'; x.textContent = '✕'; x.title = '移出队列';
+    x.onclick = () => { t.queue.splice(i, 1); renderQueuePanel(); };
+    card.appendChild(n); card.appendChild(body); card.appendChild(x);
+    panel.appendChild(card);
+  });
 }
 function quickChat(label, text) {
   if (activeTab().busy) return;
@@ -1698,6 +1740,7 @@ function switchTab(convId) {
   reflectConfig(); populateModels();
   $('send').style.display = t.busy ? 'none' : ''; $('stop').style.display = t.busy ? 'inline-flex' : 'none';
   $('sdot').className = 'sdot ' + (t.busy ? 'busy' : 'live');
+  renderQueuePanel();   // 队列是 per-tab,切换时刷新右上角显示
   renderCostBar();   // 成本条切换到当前标签的累计值
   renderTabs(); scrollDown();
 }
