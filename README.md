@@ -13,6 +13,12 @@
 ![Backends](https://img.shields.io/badge/后端-Claude%20Code%20%2F%20Codex-7c3aed)
 ![Tests](https://img.shields.io/badge/sidecar%20单测-56%20passing-46d18a)
 ![Deps](https://img.shields.io/badge/sidecar-零%20npm%20依赖-blue)
+<br>
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)
+![Language](https://img.shields.io/badge/language-MATLAB%20%7C%20TypeScript-orange?logo=typescript&logoColor=white)
+![GitLab](https://img.shields.io/badge/GitLab-自托管-fc6d26?logo=gitlab)
+![Contributors](https://img.shields.io/badge/contributors-1-4c1)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)
 
 </div>
 
