@@ -7,10 +7,11 @@
 停靠面板里对话 · 自动感知当前文件 / 模型 / 选中 block / 工作区 / 报错 · 通过官方 MATLAB MCP 操作实况会话。
 无第二个窗口、无外部浏览器。
 
-![MATLAB](https://img.shields.io/badge/MATLAB-R2025b-orange?logo=mathworks)
+![Version](https://img.shields.io/badge/version-0.7.0-success)
+![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/后端-Claude%20Code%20%2F%20Codex-7c3aed)
-![Tests](https://img.shields.io/badge/sidecar%20单测-50%20passing-46d18a)
+![Tests](https://img.shields.io/badge/sidecar%20单测-56%20passing-46d18a)
 ![Deps](https://img.shields.io/badge/sidecar-零%20npm%20依赖-blue)
 
 </div>
@@ -109,6 +110,8 @@
 | 🔀 双后端运行时切换 | Claude Code ↔ Codex，会话/线程各自 resume |
 | ⚡ Claude 常驻进程 | 进程常驻、每轮免冷启；故障自动 resume 重启（opt-in 开关） |
 | 🗂 多标签 + 卡片 Fork | 每标签独立对话/后端/配置；任一回答可 Fork 出独立子会话 |
+| 📝 选区批注 + 便签追问 | 右键选中回答里的文字 → 批注框 → 多条便签汇总一键发；被批注段落持久黄色高亮 |
+| ⏸ 回答中插入 + Esc 中断 | 答复时插入新指令（**队列**排队 / **引导**立即抢占）；`Esc` 即时中断本轮 |
 | 💾 会话持久化 + 按项目恢复 | 历史按工程根落盘，重启自动恢复 |
 | ⬇ 导出 Markdown · 💰 成本/token 显示 · ☑ 任务清单可视化 · ⌨ Ctrl+K 命令面板 | — |
 | 📁 工程级全工程索引 | git 分支/状态 + slx/m/数据字典/Bus 文件清单 |
@@ -135,7 +138,7 @@
 
 ## 🚀 快速开始
 
-> 完整步骤、验证方法、FAQ 见 **[INSTALL.md](INSTALL.md)**。
+> 完整步骤、验证方法、FAQ 见 **[INSTALL.md](INSTALL.md)**；版本变更见 **[CHANGELOG.md](CHANGELOG.md)**（当前 **v0.7.0**）。
 
 ```matlab
 % 1. 安装工具箱(双击 .mltbx 或)
@@ -192,7 +195,7 @@ sidecar/                       零 npm 依赖
     streamJsonParser.js        Claude stream-json → UI 事件
     permissionServer.js        权限确认 MCP(手写 JSON-RPC,零依赖)
     adapters/                  claudeCode / codex / echo / types
-  test/                        50 个单元/集成测试(10 文件)
+  test/                        56 个单元/集成测试(10 文件)
 docs/images/                   架构/数据流/权限/功能 SVG 图示
 ```
 
@@ -201,10 +204,10 @@ docs/images/                   架构/数据流/权限/功能 SVG 图示
 ## 🧪 测试
 
 ```bash
-cd sidecar && npm test        # 50 个单元/集成测试,10 个文件
+cd sidecar && npm test        # 56 个单元/集成测试,10 个文件
 ```
 
-覆盖：stream-json 翻译、thinking、codex item 映射（含 turn.failed 收尾、per-child 守卫）、TCP 全链路、权限路由（只读放行 / auto 编辑放行·执行仍确认 / plan 强制只读 / 安全自省 / control 断开清理）、操作审计、多会话路由、运行时切换、Markdown 渲染、上下文 preamble、常驻后端（开关/中断重启/resetSession）。MATLAB 侧用 `matlab -batch` + `checkcode`/`meta.class` 验证类加载/语法/工程索引逻辑。
+覆盖：stream-json 翻译、thinking、codex item 映射（含 turn.failed 收尾、per-child 守卫、看门狗/用户中断对排队的处理）、TCP 全链路、权限路由（只读放行 / auto 编辑放行·执行仍确认 / plan 强制只读 / 安全自省 / control 断开清理）、操作审计、多会话路由、运行时切换、Markdown 渲染、上下文 preamble、常驻后端（开关/中断重启/resetSession/FIFO 排队续发）。MATLAB 侧用 `matlab -batch` + `checkcode`/`meta.class` 验证类加载/语法/工程索引逻辑。
 
 ---
 
@@ -232,7 +235,7 @@ cd sidecar && npm test        # 50 个单元/集成测试,10 个文件
 - [Anthropic Claude Code](https://github.com/anthropics/claude-code) / [OpenAI Codex](https://github.com/openai/codex) — agent 大脑
 - MathWorks **Simulink Agentic Toolkit** — MATLAB MCP Server
 
-> 图示均为 SVG 可视化；面板真实运行截图待补（需在 MATLAB 环境内截取）。
+> 顶部为 MATLAB 桌面内的真实运行截图；架构 / 数据流 / 权限 / 功能为 SVG 可视化图示。
 
 <div align="center">
 <sub>Code is cheap, <em>Show me your Harness!</em> · © 林南橘</sub>
