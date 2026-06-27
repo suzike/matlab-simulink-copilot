@@ -129,3 +129,39 @@ test('C2 per-child:旧 child 的异步 close 不误清/误报新 child', () => {
   assert.equal(a.child, children[1], '旧 close 不应清空新 child');
   assert.equal(a.busy, true, '旧 close 不应清新 child 的 busy');
 });
+
+test('resume 模式:上一轮收尾(child 未 close)时发新消息 → 排队,close 后自动发(不报「上一轮尚未结束」)', () => {
+  const a = new ClaudeCodeAdapter({});   // 非 persistent = resume 模式
+  const children = [];
+  a.spawnChild = () => { const c = makeFakeChild(); children.push(c); return c; };
+  const events = [];
+  a.on('event', (e) => events.push(e));
+
+  a.sendMessage({ text: 'first' });
+  assert.equal(children.length, 1, '第一条 spawn 一个进程');
+  assert.equal(a.child, children[0]);
+
+  // 上一轮还没 close 就发第二条(result 已出、进程未退出)→ 应排队
+  a.sendMessage({ text: 'second' });
+  assert.equal(children.length, 1, '第二条不立即 spawn(排队中)');
+  assert.ok(a._pending && a._pending.text === 'second', 'second 进入 _pending');
+  assert.ok(!events.some((e) => e.type === 'error'), '不报「上一轮尚未结束」');
+
+  // 第一轮进程退出 → 自动发第二条
+  children[0].emit('close', 0);
+  assert.equal(children.length, 2, 'close 后自动 spawn 第二条');
+  assert.equal(a._pending, null, '_pending 已清');
+});
+
+test('resume 模式:主动 kill(中断)时丢弃排队,不自动发', () => {
+  const a = new ClaudeCodeAdapter({});
+  const children = [];
+  a.spawnChild = () => { const c = makeFakeChild(); children.push(c); return c; };
+  a.sendMessage({ text: 'first' });
+  a.sendMessage({ text: 'queued' });
+  assert.ok(a._pending);
+  a.interrupt();                       // 主动中断 → child._killing=true
+  children[0].emit('close', 0);
+  assert.equal(a._pending, null, '中断后排队被丢弃');
+  assert.equal(children.length, 1, '不自动发排队消息');
+});

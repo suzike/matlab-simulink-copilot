@@ -26,6 +26,7 @@ export class CodexAdapter extends BackendAdapter {
     this.matlabMcp = opts.matlabMcp || null; // { command, args }
     this.threadId = null;
     this.child = null;
+    this._pending = null;    // 上一轮收尾(进程未 close)期间排队的下一条消息
     // 主动 kill 标记绑定到具体 child 实例(child._killing),避免「同步 kill+立即新建」
     // 与「异步 close 回调」跨代竞争一个共享布尔(与 claudeCode.js 一致)。
   }
@@ -53,11 +54,13 @@ export class CodexAdapter extends BackendAdapter {
     return args;
   }
 
-  async sendMessage({ text, context } = {}) {
+  async sendMessage(payload = {}) {
     if (this.child) {
-      this.emitEvent({ type: OutMsg.ERROR, message: '上一轮尚未结束' });
+      // 上一轮收尾中(已产出结果、进程未 close)→ 排队,close 后自动发,避免「上一轮尚未结束」。
+      this._pending = payload;
       return;
     }
+    const { text, context } = payload;
     const prompt = renderContextPreamble(context) + (text || '');
     const args = this.buildArgs();
     const useShell = process.platform === 'win32';
@@ -118,7 +121,7 @@ export class CodexAdapter extends BackendAdapter {
     child.on('close', (code) => {
       if (watchdog) clearTimeout(watchdog);        // 进程已结束,撤看门狗
       if (this.child === child) this.child = null;
-      if (child._killing) return;                  // 主动中断:UI 端已收尾,不补事件
+      if (child._killing) { this._pending = null; return; }   // 主动中断:丢弃排队,不补事件
       if (!gotTurn) {
         // 进程结束却没拿到 turn.completed(codex 中途退出/卡断/事件格式异常)。
         // 必须补一个 RESULT 让 UI 一定收尾,否则会永久卡在「思考中」(这是 Codex「只回一下就没反应」的根因)。
@@ -130,6 +133,8 @@ export class CodexAdapter extends BackendAdapter {
         }
         this.emitEvent({ type: OutMsg.RESULT, id: null, ok: code === 0, text: '', costUsd: null });
       }
+      // 排队的下一轮:进程正常退出后发(this.child 已 null)。
+      if (!this.child && this._pending) { const p = this._pending; this._pending = null; this.sendMessage(p); }
     });
 
     try {

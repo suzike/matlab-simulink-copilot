@@ -36,6 +36,7 @@ export class ClaudeCodeAdapter extends BackendAdapter {
     this.child = null;
     this.translator = null;   // 常驻模式:跨轮复用的 stream-json 翻译器
     this.busy = false;        // 常驻模式:本轮是否进行中(防上一轮未结束就又发;不依赖 child 是否存在)
+    this._pending = null;     // resume 模式:上一轮收尾(result 已出、未 close)期间排队的下一条消息
     // 主动 kill / 不回写 session 的标记绑定到具体 child 实例(child._killing / child._noSession),
     // 避免「同步 kill+立即新建」与「异步 close 回调」跨代竞争一个共享布尔。
   }
@@ -101,11 +102,14 @@ export class ClaudeCodeAdapter extends BackendAdapter {
   }
 
   // resume 模式:每轮独立 spawn,写完 stdin 即关闭 → claude 处理产出 result 后退出。
-  sendOneShot({ text, context, systemPrompt } = {}) {
+  sendOneShot(payload = {}) {
     if (this.child) {
-      this.emitEvent({ type: OutMsg.ERROR, message: '上一轮尚未结束' });
+      // 上一轮收尾中(result 已发、进程尚未 close)→ 排队,进程 close 后自动发;
+      // 否则会撞上「上一轮尚未结束」(队列/引导模式在 result 后立刻发下一条时常见)。
+      this._pending = payload;
       return;
     }
+    const { text, context, systemPrompt } = payload;
     const prompt = renderContextPreamble(context) + (text || '');
     const args = this.buildArgs(systemPrompt);
     const child = this.spawnChild(args);
@@ -215,6 +219,9 @@ export class ClaudeCodeAdapter extends BackendAdapter {
         const tail = stderrBuf.trim().split('\n').slice(-5).join('\n');
         this.emitEvent({ type: OutMsg.ERROR, message: `${label} 退出码 ${code}${tail ? `:\n${tail}` : ''}` });
       }
+      // 排队的下一轮:进程正常退出后发(此时 this.child 已 null);主动 kill(中断/重置)则丢弃排队。
+      if (child._killing) { this._pending = null; }
+      else if (!this.child && this._pending) { const p = this._pending; this._pending = null; this.sendMessage(p); }
     });
   }
 
