@@ -622,8 +622,12 @@ function restoreSession() {
       addRestoreDivider();
       // assistant 用原始 markdown 重渲染(保留 raw 供导出);user 用存好的 html。兼容旧数据。
       for (const m of (sav.history || [])) {
-        if (m.role === 'assistant' && m.raw !== undefined) addRow('assistant', renderMd(m.raw));
-        else addRow(m.role, m.html || '');
+        if (m.role === 'assistant' && m.raw !== undefined) {
+          const el = addRow('assistant', renderMd(m.raw));
+          attachBubbleActions(el, m.raw);   // 恢复的历史气泡也挂 复制/批注/Fork
+        } else {
+          addRow(m.role, m.html || '');
+        }
       }
       t.history = (sav.history || []).slice();
     });
@@ -806,15 +810,21 @@ function resetToEdit(row, text) {
   inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
   setStatus('已撤回，改完再发送');
 }
-// 给完成的助手气泡挂「⧉ 复制 / ✚ 批注 / ⑂ Fork」。
+// 给任意 assistant 气泡 el 挂「⧉ 复制 / ✚ 批注 / ⑂ Fork」(raw 用于复制/Fork 种子);幂等。
+// 抽成独立函数,让流式回答与「会话恢复重建的历史气泡」两条路径都能挂——
+// 否则恢复出的历史气泡没有这些操作,显得「只有最新气泡才能用」。
+function attachBubbleActions(el, raw) {
+  if (!el || el.querySelector('.msg-actions')) return;
+  attachActions(el, [
+    { label: '⧉ 复制', on: () => copyText(raw) },
+    { label: '✚ 批注', on: () => annotateFromBubble(el) },
+    { label: '⑂ Fork', on: () => startFork({ el, raw }) },
+  ]);
+}
+// 流式路径:assistant_stop 时按 id 从 bubbles 反查并挂。
 function addBubbleActions(id) {
   const b = bubbles[id];
-  if (!b || !b.el || b.el.querySelector('.msg-actions')) return;
-  attachActions(b.el, [
-    { label: '⧉ 复制', on: () => copyText(b.raw) },
-    { label: '✚ 批注', on: () => annotateFromBubble(b.el) },
-    { label: '⑂ Fork', on: () => startFork(b) },
-  ]);
+  if (b) attachBubbleActions(b.el, b.raw);
 }
 
 // ── 选区批注 → 汇总进输入框 ─────────────────────────────────────────────────
