@@ -77,6 +77,29 @@
   <img src="docs/images/features.svg" width="880" alt="功能全景图">
 </div>
 
+### 🆕 v0.7.0 新增：边读边问 · 边答边干预
+
+长回答看到一半想追问某一句？答到一半想补需求或叫停？这两个场景在 v0.7.0 被打通——**全部真实运行截图**：
+
+<table>
+<tr>
+<td width="50%" valign="top">
+  <img src="docs/images/annotate-popup.png" width="100%" alt="选区批注：右键选中文字弹批注框">
+  <br>
+  <sub><b>📝 选区批注</b>：在助手回答里<b>选中有疑问的文字 → 右键</b>，就地弹出批注框（标题锚定你选的那段）。</sub>
+</td>
+<td width="50%" valign="top">
+  <img src="docs/images/feature-followup.png" width="100%" alt="便签汇总 + 黄色高亮 + 右下角队列 + Esc 中断">
+  <br>
+  <sub><b>🟡 高亮 + 🗒 便签 + ⏸ 队列 + ⌨ Esc</b>：被批注段落<b>持久黄色高亮</b>；多条追问以<b>便签卡片</b>贴在发送区一起发；回答中插入的新指令在<b>右下角灰显排队</b>；红色 <b>停止</b> 按钮 / <b>Esc</b> 即时中断本轮。</sub>
+</td>
+</tr>
+</table>
+
+- **📝 选区批注 / 便签追问**：右键选中 → 批注框 → 多段连续批注汇总成一条发送；每条便签锚定原文，AI 清楚你针对哪几处；批注状态按标签页隔离不串台。
+- **⏸ 回答中插入新指令**：**队列**模式排队、上一轮结束逐条自动发（右下角灰显回显）；**引导**模式立即抢占、优先执行新指令。
+- **⌨ Esc 即时中断**：回答中按 `Esc`（或点 **Stop**）立即停下本轮。
+
 ### 🎯 对标官方 Simulink Copilot（6 项能力 + 可追溯 + 任务编排，已全部对齐或超过）
 
 | 官方能力 | 本项目 | 实现 |
@@ -196,7 +219,7 @@ sidecar/                       零 npm 依赖
     permissionServer.js        权限确认 MCP(手写 JSON-RPC,零依赖)
     adapters/                  claudeCode / codex / echo / types
   test/                        56 个单元/集成测试(10 文件)
-docs/images/                   架构/数据流/权限/功能 SVG 图示
+docs/images/                   架构/数据流/权限/功能 SVG 图示 + 真实运行截图(含 v0.7.0 批注/便签/队列)
 ```
 
 ---
