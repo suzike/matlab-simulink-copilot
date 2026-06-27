@@ -57,6 +57,18 @@ classdef Panel < handle
             end
         end
 
+        function onFigureKey(obj, evt)
+            % figure 层键盘兜底:Esc → 中断当前会话的回答(网页内 Esc 被 uihtml 吞时仍可用)。
+            try
+                if strcmpi(string(evt.Key), "escape")
+                    cc = char(obj.ActiveConv);
+                    obj.Bridge.send(struct('type', "interrupt", 'convId', cc));
+                    obj.pushToUi(struct('type', "interrupted", 'convId', cc));
+                end
+            catch
+            end
+        end
+
         function buildUI(obj)
             fig = uifigure('Name', 'MATLAB Copilot', 'Position', [100 100 440 820]);
             % 尝试停靠进 MATLAB 桌面(R2025a+);失败则保持浮动窗口。
@@ -65,6 +77,8 @@ classdef Panel < handle
             catch
             end
             fig.CloseRequestFcn = @(~,~) obj.onClose();
+            % Esc 兜底:uihtml 可能吞掉网页内的 Esc,这里在 figure 层捕获 → 中断当前回答。
+            fig.WindowKeyPressFcn = @(~, evt) obj.onFigureKey(evt);
 
             g = uigridlayout(fig, [1 1], 'Padding', [0 0 0 0], ...
                 'RowHeight', {'1x'}, 'ColumnWidth', {'1x'});

@@ -1040,6 +1040,7 @@ function onSidecar(msg) {
     case 'tool_result': updateToolCard(msg); break;
     case 'permission_request': addPermission(msg); break;
     case 'result': setBusy(false, cid); if (msg.costUsd != null) updateCostBar(msg.costUsd, cid); if (onActive) setStatus(msg.ok ? '完成' : '出错'); flushQueue(cid); break;
+    case 'interrupted': setBusy(false, cid); if (onActive) setStatus('已中断'); break;   // MATLAB figure 兜底 Esc 中断
     case 'error': addMsg('error', escapeHtml(msg.message || '未知错误')); setBusy(false, cid); break;
     case 'user_echo': addMsg('user', escapeHtml(msg.text || '')); setBusy(true, cid); break;
     case 'diagnostics': renderDiagnostics(msg.items); break;
@@ -1230,7 +1231,8 @@ function setBusy(b, conv) {
   // 只有当前活动标签的忙状态驱动发送/停止/状态点。
   if (t.convId === activeConv) {
     busy = b;
-    $('send').disabled = b;
+    // 互斥:回答中【隐藏发送、只显示醒目的「停止」】,确保中断入口一眼可见。
+    $('send').style.display = b ? 'none' : '';
     $('stop').style.display = b ? 'inline-flex' : 'none';
     $('sdot').className = 'sdot ' + (b ? 'busy' : 'live');
   }
@@ -1382,12 +1384,17 @@ $('tb-insert').onclick = () => {
 };
 reflectInsertMode();
 
-// 回答进行中按 Esc → 立即中断(弹层优先:批注框/斜杠面板的 Esc 已各自处理,不会走到这里)。
-document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || e.defaultPrevented) return;
-  if (!$('annotate-pop').classList.contains('hidden')) return;   // 批注框开着 → 不中断
-  if (activeTab() && activeTab().busy) { e.preventDefault(); interruptCurrent(); }
-});
+// 回答进行中按 Esc → 立即中断。用 capture 阶段监听:即使某处 stopPropagation 也能收到。
+// 弹层优先:批注框/斜杠面板开着时先让它们的 Esc 关闭弹层,不中断回答。
+function escHandler(e) {
+  if (e.key !== 'Escape' && e.key !== 'Esc') return;
+  if (!$('annotate-pop').classList.contains('hidden')) return;                 // 批注框开着 → 不中断
+  if ($('slash-pop') && !$('slash-pop').classList.contains('hidden')) return;  // 斜杠面板开着 → 不中断
+  if (activeTab() && activeTab().busy) { e.preventDefault(); e.stopPropagation(); interruptCurrent(); }
+}
+document.addEventListener('keydown', escHandler, true);   // capture
+window.addEventListener('keydown', escHandler, true);     // 双保险(部分 webview 事件只到 window)
+// MATLAB 端 figure 兜底:uihtml 吞掉 Esc 时,MATLAB 的 WindowKeyPressFcn 捕获后会 pushToUi 一个 'interrupted' 事件(见 onSidecar)。
 $('btn-diagnose').onclick = () => { if (!activeTab().busy) { useRender(activeConv); addMsg('user', '🩺 诊断当前报错'); setBusy(true, activeConv); toMatlab('diagnose_error', {}); } };
 $('btn-explain').onclick = () => quickChat('📖 解释选中', '请解释选中的代码或选中的 Simulink block 的作用与原理;若没有选中,则解释当前文件/模型的整体功能。');
 $('btn-comment').onclick = () => quickChat('💬 给选中加注释', '请给选中的代码添加清晰的中文注释,保持逻辑和缩进不变,只返回加注释后的代码。');
@@ -1689,7 +1696,7 @@ function switchTab(convId) {
   const t = useRender(convId);
   config = t.config; auditLog = t.auditLog; busy = t.busy;
   reflectConfig(); populateModels();
-  $('send').disabled = t.busy; $('stop').style.display = t.busy ? 'inline-flex' : 'none';
+  $('send').style.display = t.busy ? 'none' : ''; $('stop').style.display = t.busy ? 'inline-flex' : 'none';
   $('sdot').className = 'sdot ' + (t.busy ? 'busy' : 'live');
   renderCostBar();   // 成本条切换到当前标签的累计值
   renderTabs(); scrollDown();
