@@ -7,7 +7,7 @@
 停靠面板里对话 · 自动感知当前文件 / 模型 / 选中 block / 工作区 / 报错 · 通过官方 MATLAB MCP 操作实况会话。
 无第二个窗口、无外部浏览器。
 
-![Version](https://img.shields.io/badge/version-0.7.0-success)
+![Version](https://img.shields.io/badge/version-0.7.5-success)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/后端-Claude%20Code%20%2F%20Codex-7c3aed)
@@ -82,6 +82,21 @@
 <div align="center">
   <img src="docs/images/features.svg" width="880" alt="功能全景图">
 </div>
+
+### 🆕 v0.7.5 新增：对话轮次导航轨（长对话一键跳转）
+
+长对话里「找回之前某个问答」很费滚动？左侧多了一条**紧凑的轮次导航轨**——每轮一个刻度、等距压成一小块，悬停看富预览、点击直接跳转。灵感来自 Codex 的 navigation rail，但更紧凑、信息更全：
+
+<div align="center">
+  <img src="docs/images/nav-rail.png" width="430" alt="对话轮次导航轨：左侧刻度 + 悬停富预览 + 点击跳转">
+  <br>
+  <sub>左侧紧凑刻度轨 · 悬停弹富预览卡（轮次 / 用户问 / 调用的工具 + <code>💬 回合数</code> <code>✓ ✕ 工具状态</code> <code>⟨⟩ 代码</code> <code>◈ diff</code> 徽章）· 点击平滑跳转并整轮高亮 · scroll-spy 高亮当前所在轮</sub>
+</div>
+
+- **等距紧凑刻度**：每条用户消息一个刻度，自适应缩距压成一块，长对话也不松散、永不需要滚动轨道；≥ 3 轮才出现，空/短会话自动隐藏。
+- **悬停富预览**：一眼看清这轮「问了什么、AI 回了几条、调了哪些工具、成功还是失败、有没有改代码 / 动模型」。
+- **点击跳转 + scroll-spy**：点刻度平滑滚动到那一轮并整轮高亮；滚动时高亮当前所在轮的刻度。
+- **per-tab 隔离**：导航轨始终针对当前标签页的会话重建，切换会话正确跟随。
 
 ### 🆕 v0.7.0 新增：边读边问 · 边答边干预
 
@@ -167,7 +182,7 @@
 
 ## 🚀 快速开始
 
-> 完整步骤、验证方法、FAQ 见 **[INSTALL.md](INSTALL.md)**；版本变更见 **[CHANGELOG.md](CHANGELOG.md)**（当前 **v0.7.0**）。
+> 完整步骤、验证方法、FAQ 见 **[INSTALL.md](INSTALL.md)**；版本变更见 **[CHANGELOG.md](CHANGELOG.md)**（当前 **v0.7.5**）。
 
 ```matlab
 % 1. 安装工具箱(双击 .mltbx 或)
@@ -225,7 +240,7 @@ sidecar/                       零 npm 依赖
     permissionServer.js        权限确认 MCP(手写 JSON-RPC,零依赖)
     adapters/                  claudeCode / codex / echo / types
   test/                        56 个单元/集成测试(10 文件)
-docs/images/                   架构/数据流/权限/功能 SVG 图示 + 真实运行截图(含 v0.7.0 批注/便签/队列)
+docs/images/                   架构/数据流/权限/功能 SVG 图示 + 真实运行截图(导航轨/批注/便签/队列)
 ```
 
 ---
