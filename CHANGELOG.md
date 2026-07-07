@@ -7,6 +7,51 @@
 
 ---
 
+## [0.9.0] — 2026-07-07
+
+面向团队赋能的大版本:新增 **14 项能力**,核心思路是「**确定性优先**」——检查/对比/统计由本地代码保证准确可复现(零 token、秒回),AI 只做它擅长的解释、归因与建议。
+
+### 新增 — MBD 工程套件(Added)
+
+- **◈ 模型语义 diff**:AI 每次 `model_edit` 前后自动快照,卡片展示 参数改前→改后表 / 新增删除块 / 父系统前后截图——slx 二进制改动第一次"看得见"。
+- **✔ 建模规范检查器**:8 项确定性检查(未连接/端口·子系统·信号命名/魔术数字白名单/禁用块/层深/单层块数),规则读项目根 `modeling_rules.json`(内置 MAB 子集默认);报告卡上按需「AI 解释修复」「深查 Simulink Check」。
+- **🧪 Test Manager 深度集成**:项目里有 `.mldatx` 直接本地真跑并结构化汇总;`coverage_check` 输出决策/条件/MCDC 覆盖率 + 块级缺口 + AI 补例建议(无 license 优雅降级)。
+- **📋 需求双向追溯**:需求源=飞书多维表格导出的 `requirements.csv`(或 json),锚定关系存 `req_links.json`(纯文本可进 git);画布选中块 + 输入需求 ID 一键锚定,矩阵卡未覆盖高亮、点块画布跳转。
+
+### 新增 — 高阶九连(Added)
+
+- `/mdiff <ref>` **版本对比**:当前模型 vs git 历史版本的结构/参数/截图级 diff。
+- `/sf` **Stateflow 解析**:状态/迁移表 + **不可达/无出口死逻辑检测** + mermaid 输出。
+- `/impact <名>` **影响分析**:改接口前扫全部已加载模型的使用点(参数引用/命名信号/Goto tag),点击跳画布。
+- `/siminsight` **仿真分析**:SDI 最近 run 的终值/超调/2% 稳定时间 + 曲线图 + AI 动态特性解读。
+- `/sweep 变量 值列表` **参数敏感度扫描**:批量仿真出 取值×输出 对照表,自动恢复工作区。
+- `/silcheck` **MIL vs SIL**:license 探测 + 引导式一致性验证编排(需 Embedded Coder)。
+- `/night HH:MM 任务;任务` **夜间批跑**:定时灌入队列逐条执行,完成自动导出 Markdown 晨报。
+- **📌 经验沉淀 + 自动召回**:气泡一键存入 `.copilot_kb/`(可进 git 共享);新消息按报错指纹自动召回相似经验注入上下文。
+- `/checkup` **并行体检**:3 个隐藏子会话同查 结构/风险/可测性,完成后自动汇总成体检报告。
+
+### 新增 — 文档与可发现性(Added)
+
+- `/swdd` **SWDD 设计文档生成**:确定性提取 接口表/标定参数/子系统树/Stateflow 模式 成 Markdown 骨架落盘,AI 按需补全【待补】描述。
+- **🧭 功能发现系统**:输入「? 你的需求」本地秒匹配功能(零 token,候选点击即执行,兜底 AI 选);**情境自动建议**(报错→诊断、AI 改模型 3 处→复核规范、工具失败→自愈,每类一次可关);斜杠菜单支持中文描述搜索;首次使用引导。
+- **上下文感知 addpath 路径**:快照携带用户加载到 MATLAB 路径的文件夹,AI 直接知道共享库在哪。
+
+### 性能(Performance)
+
+- **`asciiJson` 向量化**:旧实现含中文时逐字符循环,大事件(截图 base64)一次序列化卡数秒且阻塞 MATLAB 主线程(连带拖慢 MCP 工具执行)→ 改按非 ASCII 位置分段拼接,**293KB 事件 0.001s**(千倍级)。
+- 模型 diff:大画布(>60 块)跳过截图;diff 计算移到事件转发之后——"AI 操作模型慢"的三个根因全部消除。
+
+### 修复(Fixed)
+
+- 导航轨把 Fork 分支对话计入主会话轮次;Fork 气泡内批注错发主会话。
+- KnowledgeBase 错误标识符大小写不匹配致召回失效;SfExplain 无出口检测被守卫误杀;DocGen 字符串行/列向量拼接崩溃。
+
+### 测试(Tests)
+
+- sidecar 56 → **57**;新增 MATLAB 综合功能测试(11 个模块全覆盖,含 asciiJson 性能断言);UI Playwright 断言累计 **100+** 全过。
+
+---
+
 ## [0.7.5] — 2026-06-28
 
 ### 新增（Added）
@@ -73,6 +118,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.9.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.9.0
 [0.7.5]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.7.5
 [0.7.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.7.0
 [0.6.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.6.0

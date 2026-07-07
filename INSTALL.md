@@ -205,7 +205,37 @@ copilot
 
 ### 斜杠命令
 
-在输入框打 `/` 弹出命令菜单，或按 `Ctrl+K` 打开。包含配置类（`/model` `/mode` `/think` `/claude` `/codex`）、操作类（`/explain` `/fix` `/test` `/batch` `/testflow` 等）、UI 类（`/clear` `/context` `/export` `/compact`）。
+在输入框打 `/` 弹出命令菜单（支持按中文描述搜索，如打 `/文档` 能搜到 `/swdd`），或按 `Ctrl+K` 打开。
+
+**本地高阶命令**（确定性模块，零 token 秒回）：
+
+| 命令 | 作用 |
+|---|---|
+| `/mdiff HEAD~1` | 当前模型 vs git 历史版本的语义对比（参数/增删块/截图） |
+| `/sf` | Stateflow 解析：状态机结构 + 不可达/无出口死逻辑 |
+| `/impact 信号名` | 改接口前扫"谁在用它"（点击结果跳画布） |
+| `/siminsight` | 最近一次仿真的 超调/稳定时间/曲线 分析 |
+| `/sweep Kp 0.5,1,2` | 标定参数批扫仿真 → 取值×输出对照表 |
+| `/silcheck` | MIL vs SIL 一致性验证（需 Embedded Coder） |
+| `/night 23:30 任务一; 任务二` | 夜间定时批跑，完成自动导出晨报（`/night off` 取消） |
+| `/checkup` | 3 个子会话并行体检（结构/风险/可测性）并汇总 |
+| `/swdd` | 从模型生成 SWDD 设计文档骨架 + AI 补全 |
+
+另有配置类（`/model` `/mode` `/think` `/claude` `/codex`）、操作类（`/explain` `/fix` `/test` `/batch` `/testflow` 等）、UI 类（`/clear` `/context` `/export` `/compact`）。
+
+### 🧭 记不住功能?两个兜底
+
+- **「? 需求」入口**：输入框打 `? 想看这次改了什么` 回车 → 本地秒匹配出候选功能，点击即执行；匹配不到可一键"让 AI 帮我选"。
+- **情境自动建议**：出报错时提示 🩺 诊断、AI 连续改模型时提示 ✔ 复核规范、工具失败时提示 🔄 自愈——每类只提醒一次，可点可关。
+
+### 📁 项目配置文件约定（放 MATLAB 工程根目录）
+
+| 文件 | 作用 | 模板 |
+|---|---|---|
+| `modeling_rules.json` | 建模规范检查规则（缺省用内置 MAB 子集） | `docs/modeling_rules.example.json` |
+| `requirements.csv` | 需求清单（飞书多维表格「导出 CSV」即可） | `docs/requirements.example.csv` |
+| `req_links.json` | 需求↔block 锚定关系（面板操作自动生成，可进 git） | 自动生成 |
+| `.copilot_kb/` | 团队经验库(📌 存经验生成,建议进 git 共享) | 自动生成 |
 
 ### 会话管理
 
