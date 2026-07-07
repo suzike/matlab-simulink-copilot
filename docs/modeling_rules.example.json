@@ -1,0 +1,30 @@
+{
+  "_说明": "建模规范检查器配置模板。复制到你的 MATLAB 工程根目录并改名为 modeling_rules.json 即生效;缺失的字段用内置默认(MAB 常用子集)。每项可用 enabled:false 单独关闭。",
+
+  "portNaming": {
+    "enabled": true,
+    "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+    "desc": "Inport/Outport 命名:字母开头,仅字母/数字/下划线"
+  },
+  "subsystemNaming": {
+    "enabled": true,
+    "pattern": "^[A-Za-z][A-Za-z0-9_ ]*$",
+    "desc": "子系统命名:字母开头,允许空格"
+  },
+  "signalNaming": {
+    "enabled": true,
+    "pattern": "^[a-zA-Z][A-Za-z0-9_]*$",
+    "desc": "已命名信号线的命名规范(未命名的不检查)"
+  },
+  "unconnected": { "enabled": true },
+  "magicNumbers": {
+    "enabled": true,
+    "allow": ["0", "1", "-1", "2", "0.5", "pi", "inf", "-inf"]
+  },
+  "forbiddenBlocks": {
+    "enabled": true,
+    "types": ["Goto", "From"]
+  },
+  "maxDepth": { "enabled": true, "value": 6 },
+  "maxBlocksPerLayer": { "enabled": true, "value": 45 }
+}
