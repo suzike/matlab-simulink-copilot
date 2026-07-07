@@ -24,7 +24,7 @@ identifier = '7c5cff00-c0de-4a11-9a2b-0c0de1100001';  % 固定工具箱标识
 % ToolboxOptions 第一个参数只接受单一文件夹路径(字符串标量)。
 % 收集需要的文件后赋给 ToolboxFiles 属性来控制打包范围。
 % **排除 node_modules**:sidecar 零 npm 依赖,无需打包;且其深层路径会触发 Windows 260 MAX_PATH 问题。
-excludeDirs = [".git", ".spec-workflow", "ModelandCode_EP2", "slprj", ".vscode", "tasks", "node_modules"];
+excludeDirs = [".git", ".spec-workflow", "ModelandCode_EP2", "slprj", ".vscode", "tasks", "node_modules", "_verify"];
 files = gatherFiles(root, excludeDirs);
 if isempty(files)
     error('matlabcopilot:noFiles', '未收集到任何文件。');
