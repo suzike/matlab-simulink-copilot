@@ -72,6 +72,10 @@ export function renderContextPreamble(context) {
   if (context.lastError) {
     parts.push(`# 最近报错\n\`\`\`\n${context.lastError}\n\`\`\``);
   }
+  const upaths = toArray(context.userPaths);
+  if (upaths.length) {
+    parts.push(`# 已加载到 MATLAB 路径的文件夹(addpath)\n${upaths.join('\n')}\n(这些目录里的函数/类当前可直接调用;要读其源码就到这些路径下找)`);
+  }
   const pi = context.projectInfo;
   if (pi && (pi.root || pi.gitBranch)) {
     let s = `# 工程上下文`;
@@ -80,6 +84,11 @@ export function renderContextPreamble(context) {
     if (pi.gitStatus) s += `\n改动文件:\n${pi.gitStatus}`;
     if (pi.files) s += `\n工程文件索引:\n${pi.files}`;
     parts.push(s);
+  }
+  const kb = toArray(context.kbHits);
+  if (kb.length) {
+    const items = kb.map((h) => `## 相似问题:${h.q}\n${h.body || ''}`).join('\n\n');
+    parts.push(`# 团队经验库命中(仅供参考,以当前实际情况为准)\n${items}`);
   }
   const atts = toArray(context.attachments);
   for (const a of atts) {

@@ -339,6 +339,52 @@
                     overflow: auto; font-family: var(--mono); font-size: 11px; margin: 5px 0 0; max-height: 230px; }
   .tool .body .lbl { font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: .5px; margin-top: 6px; }
 
+  /* ── 模型语义 diff 卡片(model_edit 前后对比:参数表 + 增删块 + 画布截图)── */
+  .mdiff { margin-left: 39px; max-width: calc(82% - 0px); background: var(--surface2);
+           border: 1px solid color-mix(in srgb, var(--brand2) 45%, var(--border2)); border-radius: 10px;
+           overflow: hidden; font-size: 12px; animation: rowIn .26s ease both; }
+  .mdiff .head { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 7px 11px;
+                 color: var(--text); background: color-mix(in srgb, var(--brand2) 10%, transparent); }
+  .mdiff .head .mdicon { color: var(--brand2); }
+  .mdiff .head .mdsum { margin-left: auto; font-size: 10.5px; color: var(--muted); }
+  .mdiff .body { display: none; padding: 8px 11px 10px; }
+  .mdiff.open .body { display: block; }
+  .mdiff table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11px; }
+  .mdiff th { text-align: left; color: var(--faint); font-weight: 500; font-size: 10px; padding: 2px 6px;
+              border-bottom: 1px solid var(--border); }
+  .mdiff td { padding: 3px 6px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-all; }
+  .mdiff td.md-before { color: var(--err); text-decoration: line-through; text-decoration-color: rgba(255,107,107,.5); }
+  .mdiff td.md-after { color: var(--ok); }
+  .mdiff .md-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+  .mdiff .md-chip { font-family: var(--mono); font-size: 10.5px; padding: 1px 8px; border-radius: 999px; }
+  .mdiff .md-chip.add { color: var(--ok); background: rgba(70,209,138,.12); }
+  .mdiff .md-chip.del { color: var(--err); background: rgba(255,107,107,.12); }
+  .mdiff .md-shots { display: flex; gap: 7px; margin-top: 8px; }
+  .mdiff .md-shot { flex: 1; min-width: 0; }
+  .mdiff .md-shot .cap { font-size: 9.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
+  .mdiff .md-shot img { width: 100%; border: 1px solid var(--border); border-radius: 7px; cursor: zoom-in;
+                        background: #fff; }
+  .mdiff .md-shot img.zoom { position: fixed; inset: 4% 3%; width: auto; max-width: 94%; max-height: 92%;
+                             margin: auto; z-index: 40; cursor: zoom-out; box-shadow: 0 12px 48px rgba(0,0,0,.55); object-fit: contain; }
+
+  /* 规范检查报告卡(复用 .mdiff 骨架)+ 卡片内操作按钮行 */
+  .mdiff td.sev-error { color: var(--err); }
+  .mdiff td.sev-warn { color: var(--warn); }
+  .mdiff .md-actions { display: flex; gap: 6px; margin-top: 9px; }
+  .mdiff .md-actions .ma-btn { font-size: 11px; padding: 3px 10px; }
+  .mdiff .ma-btn.act-ai { color: var(--brand2); border-color: color-mix(in srgb, var(--brand2) 45%, transparent); }
+  .mdiff .ma-btn.act-ai:hover { background: color-mix(in srgb, var(--brand2) 14%, transparent); }
+
+  /* 情境建议条(nudge):贴在输入区上方,确定性规则触发,可点可关,绝不打断 */
+  #nudge-bar { position: absolute; left: 10px; bottom: 4px; z-index: 8; display: none;
+               max-width: 78%; background: color-mix(in srgb, var(--brand2) 12%, var(--surface3));
+               border: 1px solid color-mix(in srgb, var(--brand2) 45%, var(--border2));
+               border-radius: 10px; padding: 6px 10px; font-size: 11.5px; color: var(--text);
+               box-shadow: var(--shadow); display: none; align-items: center; gap: 8px; }
+  #nudge-bar.show { display: flex; }
+  #nudge-bar .nb-act { color: var(--brand2); cursor: pointer; white-space: nowrap; font-weight: 600; }
+  #nudge-bar .nb-x { color: var(--muted); cursor: pointer; padding: 0 2px; }
+
   /* ── 权限确认 ── */
   .perm { margin-left: 39px; max-width: calc(82% - 0px); background: linear-gradient(180deg, #322a16, #2a230f);
           border: 1px solid var(--warn); border-radius: 10px; padding: 11px; animation: rowIn .26s ease both; }
@@ -898,7 +944,16 @@ function attachBubbleActions(el, raw) {
     { label: '⧉ 复制', cls: 'act-copy', on: () => copyText(raw) },
     { label: '✚ 批注', cls: 'act-annot', on: () => annotateFromBubble(el) },
     { label: '⑂ Fork', cls: 'act-fork', on: () => startFork({ el, raw }) },
+    { label: '📌 存经验', cls: 'act-kb', on: () => kbSaveFromBubble(el, raw) },
   ]);
+}
+// 把这条回答连同它对应的用户提问,沉淀进团队经验库(.copilot_kb/,可进 git 共享)。
+function kbSaveFromBubble(el, raw) {
+  let q = '';
+  for (let row = el.parentNode; row; row = row.previousElementSibling) {   // 往前找最近的用户行
+    if (row.classList && row.classList.contains('row') && row.classList.contains('user')) { q = navRowText(row); break; }
+  }
+  toMatlab('kb_save', { q: navClip(q || '(未记录提问)', 200), a: String(raw || '').slice(0, 6000) });
 }
 // 流式路径:assistant_stop 时按 id 从 bubbles 反查并挂。
 function addBubbleActions(id) {
@@ -1007,6 +1062,7 @@ function selectionRangeIn(bubbleEl) {
 // 「✚ 批注」按钮:有选区用选区作锚点并高亮,无选区则针对整条(锚点用气泡开头摘要,不高亮)。
 function annotateFromBubble(bubbleEl) {
   if (bubbleEl.classList.contains('streaming')) { setStatus('回答还在生成中，结束后再批注'); return; }   // 流式中 DOM 在变,Range 会失效
+  if (bubbleEl.closest('.fork-zone')) { setStatus('分支讨论内暂不支持批注（批注会发到主会话，上下文对不上）'); return; }
   const picked = selectionRangeIn(bubbleEl);
   const snippet = picked ? picked.snippet : (bubbleEl.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40);
   const rect = bubbleEl.getBoundingClientRect();
@@ -1109,13 +1165,56 @@ function onSidecar(msg) {
     case 'assistant_delta': { const b = ensureBubble(msg.id); b.raw += msg.text || ''; b.el.innerHTML = renderMd(b.raw); scrollDown(); break; }
     case 'assistant_stop': { const b = bubbles[msg.id]; if (b) { b.el.classList.remove('streaming'); addBubbleActions(msg.id); recordHist('assistant', renderMd(b.raw), b.raw); } scheduleNavRail(); break; }
     case 'tool_use': addToolCard(msg); break;
-    case 'tool_result': updateToolCard(msg); break;
+    case 'tool_result': updateToolCard(msg);
+      if (msg.ok === false && onActive) showNudge('toolfail', '工具执行失败,可试自动修复循环', '🔄 自愈运行', () => $('btn-heal').click());
+      break;
+    case 'model_diff': addModelDiffCard(msg);          // model_edit 前后语义对比卡(MATLAB 端生成)
+      if (++mdiffCount === 3) showNudge('mdiff3', 'AI 已改模型 3 处,建议复核一遍建模规范', '✔ 标准检查', () => $('btn-check').click());
+      break;
+    case 'standards_report': addStandardsCard(msg); break;   // 本地建模规范检查报告卡
+    case 'testrun_report': addTestRunCard(msg); break;        // Test Manager 本地运行结果卡
+    case 'coverage_report': addCoverageCard(msg); break;      // 覆盖率缺口卡
+    case 'req_matrix': addReqMatrixCard(msg); break;           // 需求双向追溯矩阵卡
+    case 'sf_report': addSfCard(msg); break;                   // Stateflow 结构 + 死逻辑卡
+    case 'swdd_draft': addSwddCard(msg); break;                // SWDD 文档骨架卡
+    case 'impact_report': addImpactCard(msg); break;           // 接口影响分析卡
+    case 'sim_insight': addSimInsightCard(msg); break;         // SDI 仿真分析卡
+    case 'sweep_report': addSweepCard(msg); break;             // 参数扫描卡
+    // 夜间批量:到点后首条直发、其余入队(复用 queue/flushQueue 链),队空自动导出晨报。
+    case 'night_start': {
+      const tasks = (msg.tasks || []).map(String).filter(Boolean);
+      if (!tasks.length) break;
+      const t = tabs[cid]; if (!t) break;
+      t.nightMode = true;
+      useRender(cid);
+      addMsg('user', '🌙 夜间批量任务开始(' + tasks.length + ' 项)');
+      tasks.slice(1).forEach((x) => t.queue.push({ id: nextId(), text: x }));
+      if (cid === activeConv) renderQueuePanel();
+      addUserMessage(tasks[0]);
+      sendToBackend(tasks[0], cid);
+      break;
+    }
     case 'permission_request': addPermission(msg); break;
-    case 'result': setBusy(false, cid); if (msg.costUsd != null) updateCostBar(msg.costUsd, cid); if (onActive) setStatus(msg.ok ? '完成' : '出错'); flushQueue(cid); break;
+    case 'result': {
+      setBusy(false, cid);
+      if (checkupOnDone(cid, !msg.ok)) break;   // 体检子会话:只收集结果,不走主流程
+      if (msg.costUsd != null) updateCostBar(msg.costUsd, cid);
+      if (onActive) setStatus(msg.ok ? '完成' : '出错');
+      flushQueue(cid);
+      const t = tabs[cid];   // 夜间批量:队列排空且本轮已结 → 自动导出 Markdown 晨报
+      if (t && t.nightMode && !t.busy && (!t.queue || !t.queue.length)) {
+        t.nightMode = false;
+        try { exportSession(); setStatus('🌙 夜间任务全部完成,晨报已导出'); } catch (e) {}
+      }
+      break;
+    }
     // MATLAB figure 兜底 Esc 中断:用户主动停 → 清该会话队列(停就全停,避免卡死)。
     case 'interrupted': { setBusy(false, cid); const t = tabs[cid]; if (t && t.queue && t.queue.length) { t.queue = []; if (cid === activeConv) renderQueuePanel(); } if (onActive) setStatus('已中断'); break; }
     // 出错也是一种回合终结:flush 队列下一条,避免排队消息因没收到 result 而永久卡住。
-    case 'error': addMsg('error', escapeHtml(msg.message || '未知错误')); setBusy(false, cid); flushQueue(cid); break;
+    case 'error': setBusy(false, cid); if (checkupOnDone(cid, true)) break;
+                  addMsg('error', escapeHtml(msg.message || '未知错误')); flushQueue(cid);
+                  if (onActive) showNudge('err', '出错了?一键带完整上下文诊断', '🩺 诊断', () => $('btn-diagnose').click());
+                  break;
     case 'user_echo': addMsg('user', escapeHtml(msg.text || '')); setBusy(true, cid); break;
     case 'diagnostics': renderDiagnostics(msg.items); break;
     case 'audit': onAudit(msg.entry); break;
@@ -1149,6 +1248,400 @@ function updateToolCard(msg) {
     const pre = document.createElement('pre'); pre.textContent = msg.summary;
     body.appendChild(lbl); body.appendChild(pre);
   }
+}
+
+// ── 模型语义 diff 卡片:MATLAB 端在 model_edit 前后快照对比,推来 model_diff 事件 ──
+// 让工程师"看得见 AI 改了什么":参数 改前→改后 表格 + 新增/删除块 + 父系统前后截图。
+function mdLeaf(p) {   // 路径末段(保护块名里的转义斜杠 '//')
+  const safe = String(p || '').replace(/\/\//g, '\u0001');
+  const parts = safe.split('/');
+  return parts[parts.length - 1].replace(/\u0001/g, '/');
+}
+function addModelDiffCard(msg) {
+  const changes = msg.changes || [], added = msg.added || [], removed = msg.removed || [], shots = (msg.shots || []).filter((s) => s && (s.before || s.after));
+  if (!changes.length && !added.length && !removed.length && !shots.length) return;
+  const el = document.createElement('div');
+  el.className = 'mdiff open';   // 默认展开:diff 是要给人看的证据
+  const parts = [];
+  if (changes.length) parts.push(changes.length + ' 处参数');
+  if (added.length) parts.push('+' + added.length + ' 块');
+  if (removed.length) parts.push('−' + removed.length + ' 块');
+  let body = '';
+  if (changes.length) {
+    body += '<table><tr><th>块</th><th>参数</th><th>改前</th><th>改后</th></tr>' + changes.map((c) =>
+      '<tr><td title="' + escapeHtml(c.block) + '">' + escapeHtml(mdLeaf(c.block)) + '</td><td>' + escapeHtml(c.param) + '</td>' +
+      '<td class="md-before">' + escapeHtml(c.before) + '</td><td class="md-after">' + escapeHtml(c.after) + '</td></tr>').join('') + '</table>';
+  }
+  if (added.length || removed.length) {
+    body += '<div class="md-chips">' +
+      added.map((p) => '<span class="md-chip add" title="' + escapeHtml(p) + '">＋ ' + escapeHtml(mdLeaf(p)) + '</span>').join('') +
+      removed.map((p) => '<span class="md-chip del" title="' + escapeHtml(p) + '">− ' + escapeHtml(mdLeaf(p)) + '</span>').join('') + '</div>';
+  }
+  if (shots.length) {
+    body += shots.map((s) =>
+      '<div class="md-shots" data-sys="' + escapeHtml(s.sys || '') + '">' +
+      (s.before ? '<div class="md-shot"><div class="cap">改前 · ' + escapeHtml(mdLeaf(s.sys)) + '</div><img src="' + s.before + '"></div>' : '') +
+      (s.after ? '<div class="md-shot"><div class="cap">改后 · ' + escapeHtml(mdLeaf(s.sys)) + '</div><img src="' + s.after + '"></div>' : '') +
+      '</div>').join('');
+  }
+  el.innerHTML = '<div class="head"><span class="mdicon">◈</span><span>' + escapeHtml(msg.title || '模型变更核验') + '</span>' +
+    '<span class="mdsum">' + escapeHtml(parts.join(' · ') || '截图对比') + '</span></div>' +
+    '<div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  el.querySelectorAll('.md-shot img').forEach((img) => { img.onclick = () => img.classList.toggle('zoom'); });  // 点击放大/还原
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 建模规范检查报告卡:MATLAB 本地确定性规则的结构化结果(standards_report 事件)──
+function addStandardsCard(msg) {
+  const findings = msg.findings || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';   // 复用 mdiff 卡片骨架样式
+  const sum = findings.length
+    ? (msg.errors ? msg.errors + ' 错误 · ' : '') + (msg.warns ? msg.warns + ' 警告 · ' : '') + (msg.source || '')
+    : '✅ 全部通过 · ' + (msg.source || '');
+  let body = '';
+  if (findings.length) {
+    body += '<table><tr><th>规则</th><th>位置</th><th>问题</th></tr>' + findings.map((f) =>
+      '<tr><td class="sev-' + escapeHtml(f.severity || 'warn') + '">' + escapeHtml(f.rule) + '</td>' +
+      '<td title="' + escapeHtml(f.path) + '">' + escapeHtml(mdLeaf(f.path)) + '</td>' +
+      '<td>' + escapeHtml(f.msg) + '</td></tr>').join('') + '</table>';
+  } else {
+    body += '<div style="color:var(--ok);padding:4px 0;">✅ 本地规则全部通过(' + escapeHtml(String(msg.model || '')) + '）</div>';
+  }
+  body += '<div class="md-actions">' +
+    (findings.length ? '<button class="ma-btn act-ai">🤖 AI 解释并给修复建议</button>' : '') +
+    '<button class="ma-btn act-deep">🔬 深查(Simulink Check)</button></div>';
+  el.innerHTML = '<div class="head"><span class="mdicon">✔</span><span>建模规范检查 · ' + escapeHtml(String(msg.model || '')) + '</span>' +
+    '<span class="mdsum">' + escapeHtml(sum) + '</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  const aiBtn = el.querySelector('.act-ai');
+  if (aiBtn) aiBtn.onclick = () => {
+    const brief = findings.slice(0, 40).map((f) => '- [' + f.severity + '/' + f.rule + '] ' + f.path + ': ' + f.msg).join('\n');
+    quickChat('🤖 解释规范检查结果并给修复建议',
+      '本地建模规范检查(规则源:' + (msg.source || '') + ')对模型 ' + msg.model + ' 发现以下问题:\n' + brief +
+      '\n\n请逐条解释违反原因与影响,并给出具体修复建议;能用 model_edit 直接修的,征得确认后修复。');
+  };
+  el.querySelector('.act-deep').onclick = () =>
+    quickChat('🔬 深查(Simulink Check)', '请对当前 Simulink 模型运行建模标准检查(model_check / Simulink Check),按严重程度汇总问题并给出修复建议。');
+  clearWelcome(); messages.appendChild(el); scrollDown();
+  setStatus(findings.length ? '规范检查:发现 ' + findings.length + ' 项' : '规范检查通过');
+}
+
+// ── Test Manager 运行结果卡(testrun_report):本地确定性跑 *.mldatx 的结构化汇总 ──
+function addTestRunCard(msg) {
+  const cases = msg.cases || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  const sum = (msg.passed || 0) + ' 通过 · ' + (msg.failed || 0) + ' 失败';
+  let body = '';
+  if (cases.length) {
+    body += '<table><tr><th>用例</th><th>文件</th><th>结果</th><th>用时(s)</th></tr>' + cases.map((c) =>
+      '<tr><td>' + escapeHtml(c.name) + '</td><td>' + escapeHtml(c.file) + '</td>' +
+      '<td class="' + (String(c.outcome) === 'Passed' ? 'md-after' : 'sev-error') + '">' + escapeHtml(c.outcome) + '</td>' +
+      '<td>' + escapeHtml(String(c.duration != null ? c.duration : '')) + '</td></tr>').join('') + '</table>';
+  } else {
+    body += '<div style="color:var(--muted);padding:4px 0;">用例文件已运行,但未取到用例级结果。</div>';
+  }
+  body += '<div class="md-actions">' +
+    (msg.failed ? '<button class="ma-btn act-ai">🤖 AI 分析失败原因</button>' : '') +
+    '<button class="ma-btn act-cov">📊 覆盖率缺口</button></div>';
+  el.innerHTML = '<div class="head"><span class="mdicon">🧪</span><span>Test Manager 结果</span>' +
+    '<span class="mdsum">' + escapeHtml(sum) + '</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  const ai = el.querySelector('.act-ai');
+  if (ai) ai.onclick = () => {
+    const fails = cases.filter((c) => String(c.outcome) !== 'Passed').slice(0, 20)
+      .map((c) => '- ' + c.file + ' / ' + c.name + ':' + c.outcome).join('\n');
+    quickChat('🤖 分析测试失败原因', 'Test Manager 运行结果:' + sum + '。失败用例:\n' + fails +
+      '\n\n请逐条分析可能根因(定位到 block/信号层面),给出修复建议;改模型前先列方案等我确认。');
+  };
+  el.querySelector('.act-cov').onclick = () => { setStatus('覆盖率仿真中…'); toMatlab('coverage_check', {}); };
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 覆盖率缺口卡(coverage_report):决策/条件/MCDC 百分比 + 块级缺口清单 ──
+function covPct(pair) { return (pair && pair.length >= 2 && pair[1] > 0) ? Math.round(pair[0] / pair[1] * 100) + '%(' + pair[0] + '/' + pair[1] + ')' : '—'; }
+function addCoverageCard(msg) {
+  const gaps = msg.gaps || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  let body = '<div class="md-chips">' +
+    '<span class="md-chip add">决策 ' + covPct(msg.decision) + '</span>' +
+    '<span class="md-chip add">条件 ' + covPct(msg.condition) + '</span>' +
+    '<span class="md-chip add">MCDC ' + covPct(msg.mcdc) + '</span></div>';
+  if (gaps.length) {
+    body += '<table><tr><th>块</th><th>指标</th><th>覆盖</th></tr>' + gaps.map((g) =>
+      '<tr><td title="' + escapeHtml(g.path) + '">' + escapeHtml(mdLeaf(g.path)) + '</td>' +
+      '<td>' + escapeHtml(g.metric) + '</td>' +
+      '<td class="sev-warn">' + escapeHtml(g.hit + ' / ' + g.total) + '</td></tr>').join('') + '</table>' +
+      '<div class="md-actions"><button class="ma-btn act-ai">🤖 AI 按缺口建议补例</button></div>';
+  } else {
+    body += '<div style="color:var(--ok);padding:4px 0;">✅ 未发现决策/条件覆盖缺口</div>';
+  }
+  el.innerHTML = '<div class="head"><span class="mdicon">📊</span><span>覆盖率 · ' + escapeHtml(String(msg.model || '')) + '</span>' +
+    '<span class="mdsum">' + (gaps.length ? gaps.length + ' 处缺口' : '无缺口') + '</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  const ai = el.querySelector('.act-ai');
+  if (ai) ai.onclick = () => {
+    const brief = gaps.slice(0, 30).map((g) => '- ' + g.path + ':' + g.metric + ' ' + g.hit + '/' + g.total).join('\n');
+    quickChat('🤖 按覆盖缺口建议补例', '模型 ' + msg.model + ' 覆盖率:决策 ' + covPct(msg.decision) + ',条件 ' + covPct(msg.condition) +
+      ',MCDC ' + covPct(msg.mcdc) + '。未覆盖的块:\n' + brief +
+      '\n\n请为每处缺口设计能覆盖它的测试激励(输入信号/边界值),优先给 Simulink Test 用例形式;生成用例文件前先列方案等我确认。');
+  };
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 需求双向追溯矩阵卡(req_matrix):真实需求 ID(飞书导出)↔ 模型 block 锚定 ──
+function addReqMatrixCard(msg) {
+  const rows = msg.rows || [], unknown = msg.unknown || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  const cov = (msg.covered || 0) + ' / ' + (msg.total || 0) + ' 已锚定';
+  let body = '';
+  if (rows.length) {
+    body += '<table><tr><th>需求 ID</th><th>标题</th><th>锚定的块(点击画布高亮)</th></tr>' + rows.map((r) => {
+      const blks = (r.blocks || []).map((b) =>
+        '<span class="md-chip add req-blk" data-path="' + escapeHtml(b) + '" title="' + escapeHtml(b) + '" style="cursor:pointer">' + escapeHtml(mdLeaf(b)) + '</span>').join(' ');
+      const covd = (r.blocks || []).length > 0;
+      return '<tr><td class="' + (covd ? 'md-after' : 'sev-warn') + '">' + escapeHtml(r.id) + '</td>' +
+        '<td>' + escapeHtml(r.title || '') + '</td><td>' + (blks || '<span class="sev-warn">未锚定</span>') + '</td></tr>';
+    }).join('') + '</table>';
+  } else {
+    body += '<div style="color:var(--muted);padding:4px 0;">需求文件里没有可用条目。</div>';
+  }
+  if (unknown.length) {
+    body += '<div class="md-chips">' + unknown.slice(0, 10).map((u) =>
+      '<span class="md-chip del" title="' + escapeHtml(u.block) + '">⚠ ' + escapeHtml(u.req) + ' 不在需求清单</span>').join('') + '</div>';
+  }
+  body += '<div class="md-actions" style="flex-wrap:wrap">' +
+    '<input class="req-id-in" placeholder="REQ-ID" style="width:110px;background:var(--surface3);border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:2px 8px;font-size:11px;font-family:var(--mono)">' +
+    '<button class="ma-btn act-link">🔗 锚定选中块</button>' +
+    '<button class="ma-btn act-unlink">解除</button>' +
+    '<button class="ma-btn act-ai">🤖 AI 建议锚定</button></div>' +
+    '<div style="font-size:10px;color:var(--faint);margin-top:5px">锚定关系存 req_links.json(纯文本,可进 git/review);需求源:飞书多维表格导出 requirements.csv 放项目根即可。</div>';
+  el.innerHTML = '<div class="head"><span class="mdicon">📋</span><span>需求追溯 · ' + escapeHtml(String(msg.model || '')) + '</span>' +
+    '<span class="mdsum">' + escapeHtml(cov + ' · ' + (msg.source || '')) + '</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  el.querySelectorAll('.req-blk').forEach((chip) => { chip.onclick = () => toMatlab('jump_block', { path: chip.dataset.path }); });
+  const idIn = el.querySelector('.req-id-in');
+  el.querySelector('.act-link').onclick = () => {
+    const rid = idIn.value.trim();
+    if (!rid) { setStatus('先在输入框填需求 ID(如 REQ-001),并在画布选中要锚定的块'); return; }
+    toMatlab('req_link', { reqId: rid, unlink: false });
+  };
+  el.querySelector('.act-unlink').onclick = () => {
+    const rid = idIn.value.trim();
+    if (!rid) { setStatus('填要解除的需求 ID'); return; }
+    toMatlab('req_link', { reqId: rid, unlink: true });
+  };
+  el.querySelector('.act-ai').onclick = () => {
+    const uncovered = rows.filter((r) => !(r.blocks || []).length).slice(0, 30)
+      .map((r) => '- ' + r.id + ':' + (r.title || '')).join('\n');
+    quickChat('🤖 AI 建议需求锚定', '模型 ' + msg.model + ' 的需求追溯矩阵中,以下需求尚未锚定到任何 block:\n' +
+      (uncovered || '(全部已锚定)') +
+      '\n\n请阅读模型结构(model_overview/model_read),为每条未锚定需求提议最合适的 block 完整路径(格式:REQ-ID → 块路径),说明理由。我确认后会在追溯卡上逐条锚定。');
+  };
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── Stateflow 解析卡(sf_report):状态机结构 + 死逻辑(不可达/无出口)──
+function addSfCard(msg) {
+  const charts = msg.charts || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  let body = '';
+  if (!charts.length) {
+    body = '<div style="color:var(--muted);padding:4px 0;">模型 ' + escapeHtml(String(msg.model || '')) + ' 中没有 Stateflow chart。</div>';
+  } else {
+    body = charts.map((c) => {
+      const bad = (c.unreachable || []).length + (c.deadEnd || []).length;
+      let s = '<div style="margin-top:6px"><b>' + escapeHtml(c.name) + '</b>' +
+        '<span style="color:var(--muted);font-size:10.5px"> · ' + c.nStates + ' 状态 / ' + c.nTrans + ' 迁移' +
+        (bad ? '' : ' · <span class="md-after">✅ 无死逻辑</span>') + '</span></div>';
+      if ((c.unreachable || []).length) s += '<div class="md-chips">' + c.unreachable.map((n) =>
+        '<span class="md-chip del">⛔ 不可达:' + escapeHtml(n) + '</span>').join('') + '</div>';
+      if ((c.deadEnd || []).length) s += '<div class="md-chips">' + c.deadEnd.map((n) =>
+        '<span class="md-chip del">🚪 无出口:' + escapeHtml(n) + '</span>').join('') + '</div>';
+      if (c.mermaid) s += '<pre style="margin-top:5px;max-height:180px;overflow:auto;font-size:10.5px">' + escapeHtml(c.mermaid) + '</pre>';
+      return s;
+    }).join('');
+    body += '<div class="md-actions"><button class="ma-btn act-ai">🤖 AI 解释此状态机</button></div>';
+  }
+  el.innerHTML = '<div class="head"><span class="mdicon">🔀</span><span>Stateflow · ' + escapeHtml(String(msg.model || '')) + '</span>' +
+    '<span class="mdsum">' + charts.length + ' 个 chart</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  const ai = el.querySelector('.act-ai');
+  if (ai) ai.onclick = () => {
+    const brief = charts.map((c) => '## ' + c.path + '\n' + (c.mermaid || '') +
+      ((c.unreachable || []).length ? '\n不可达状态:' + c.unreachable.join(',') : '') +
+      ((c.deadEnd || []).length ? '\n无出口状态:' + c.deadEnd.join(',') : '')).join('\n\n');
+    quickChat('🤖 解释状态机', '以下是模型 ' + msg.model + ' 的 Stateflow 结构(mermaid 迁移表 + 死逻辑检测):\n' + brief +
+      '\n\n请用业务语言解释每个状态的职责、模式切换条件;对检测出的不可达/无出口状态判断是缺陷还是有意设计,并给修复建议。');
+  };
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 影响分析卡(impact_report):接口/变量的全部使用点,点击跳画布 ──
+function addImpactCard(msg) {
+  const hits = msg.hits || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  let body = '<div style="color:var(--muted);font-size:10.5px">扫描范围:已加载模型 ' + (msg.models || []).map(escapeHtml).join('、') + '</div>';
+  if (hits.length) {
+    body += '<table><tr><th>模型</th><th>位置(点击高亮)</th><th>用途</th></tr>' + hits.map((h) =>
+      '<tr><td>' + escapeHtml(h.model) + '</td>' +
+      '<td><span class="req-blk" data-path="' + escapeHtml(h.path) + '" title="' + escapeHtml(h.path) + '" style="cursor:pointer;color:var(--brand2)">' + escapeHtml(mdLeaf(h.path)) + '</span></td>' +
+      '<td title="' + escapeHtml(h.detail || '') + '">' + escapeHtml(h.kind) + '</td></tr>').join('') + '</table>' +
+      '<div class="md-actions"><button class="ma-btn act-ai">🤖 AI 评估改动风险</button></div>';
+  } else {
+    body += '<div style="color:var(--ok);padding:4px 0;">✅ 已加载模型中未发现『' + escapeHtml(msg.token) + '』的使用点</div>';
+  }
+  el.innerHTML = '<div class="head"><span class="mdicon">🕸</span><span>影响分析 · ' + escapeHtml(msg.token) + '</span>' +
+    '<span class="mdsum">' + hits.length + ' 处使用</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  el.querySelectorAll('.req-blk').forEach((c) => { c.onclick = () => toMatlab('jump_block', { path: c.dataset.path }); });
+  const ai = el.querySelector('.act-ai');
+  if (ai) ai.onclick = () => {
+    const brief = hits.slice(0, 40).map((h) => '- [' + h.kind + '] ' + h.path + (h.detail ? '(' + h.detail + ')' : '')).join('\n');
+    quickChat('🤖 评估接口改动风险', '我准备修改接口/变量『' + msg.token + '』。影响分析扫到以下使用点:\n' + brief +
+      '\n\n请评估:哪些使用点会被破坏、需要同步改什么、建议的改动顺序,以及如何验证改完没引入回归。');
+  };
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 仿真分析卡(sim_insight):SDI 最近 run 的指标表 + 曲线图 ──
+function addSimInsightCard(msg) {
+  const sigs = msg.signals || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  let body = '';
+  if (sigs.length) {
+    body += '<table><tr><th>信号</th><th>终值</th><th>超调%</th><th>2%稳定(s)</th><th>min/max</th></tr>' + sigs.map((s) =>
+      '<tr><td>' + escapeHtml(s.name) + '</td><td>' + escapeHtml(String(s.final)) + '</td>' +
+      '<td class="' + (Math.abs(+s.overshoot) > 10 ? 'sev-warn' : '') + '">' + escapeHtml(String(s.overshoot)) + '</td>' +
+      '<td>' + escapeHtml(String(s.settle)) + '</td>' +
+      '<td>' + escapeHtml(s.min + ' / ' + s.max) + '</td></tr>').join('') + '</table>';
+  }
+  if (msg.png) body += '<div class="md-shots"><div class="md-shot"><div class="cap">曲线 · ' + escapeHtml(String(msg.run || '')) + '</div><img src="' + msg.png + '"></div></div>';
+  body += '<div class="md-actions"><button class="ma-btn act-ai">🤖 AI 解读动态特性</button></div>';
+  el.innerHTML = '<div class="head"><span class="mdicon">📈</span><span>仿真分析 · ' + escapeHtml(String(msg.run || '')) + '</span>' +
+    '<span class="mdsum">' + sigs.length + ' 个信号</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  el.querySelectorAll('.md-shot img').forEach((img) => { img.onclick = () => img.classList.toggle('zoom'); });
+  el.querySelector('.act-ai').onclick = () => {
+    const brief = sigs.map((s) => '- ' + s.name + ':终值 ' + s.final + ',超调 ' + s.overshoot + '%,2%稳定 ' + s.settle + 's,范围[' + s.min + ',' + s.max + ']').join('\n');
+    quickChat('🤖 解读仿真动态特性', '最近一次仿真(run:' + (msg.run || '') + ')的信号指标:\n' + brief +
+      '\n\n请从控制品质角度解读:超调/振荡/稳定时间是否健康?哪些信号异常?若要改善,建议调整哪些参数、往什么方向调?');
+  };
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 参数扫描卡(sweep_report):参数取值 × 各输出终值/峰值 对照表 ──
+function addSweepCard(msg) {
+  const rows = msg.rows || [];
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  const outNames = [...new Set(rows.flatMap((r) => (r.outs || []).map((o) => String(o.name))))];
+  let body = '';
+  if (rows.length) {
+    body += '<table><tr><th>' + escapeHtml(msg.param) + '</th>' + outNames.map((n) =>
+      '<th>' + escapeHtml(n) + ' 终值(峰值)</th>').join('') + '</tr>' + rows.map((r) => {
+      const cells = outNames.map((n) => {
+        const o = (r.outs || []).find((x) => String(x.name) === n);
+        return '<td>' + (o ? escapeHtml(o.final + (o.peak !== '' ? '(' + o.peak + ')' : '')) : '—') + '</td>';
+      }).join('');
+      return '<tr><td class="md-after">' + escapeHtml(String(r.value)) + '</td>' + cells + '</tr>';
+    }).join('') + '</table>' +
+    '<div class="md-actions"><button class="ma-btn act-ai">🤖 AI 分析敏感度并建议取值</button></div>';
+  }
+  el.innerHTML = '<div class="head"><span class="mdicon">🎛</span><span>参数扫描 · ' + escapeHtml(msg.param) + '</span>' +
+    '<span class="mdsum">' + rows.length + ' 个取值 · ' + escapeHtml(String(msg.model || '')) + '</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  const ai = el.querySelector('.act-ai');
+  if (ai) ai.onclick = () => {
+    const brief = rows.map((r) => '- ' + msg.param + '=' + r.value + ':' + (r.outs || []).map((o) => o.name + ' 终值 ' + o.final + ' 峰值 ' + o.peak).join(';')).join('\n');
+    quickChat('🤖 分析参数敏感度', '模型 ' + msg.model + ' 对参数 ' + msg.param + ' 的扫描结果:\n' + brief +
+      '\n\n请分析:输出对该参数的敏感度趋势(单调?拐点?)、推荐的取值区间,以及是否需要在别的工况下复扫。');
+  };
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── /checkup 并行体检:3 个隐藏子会话各查一个维度,全部完成后主会话汇总 ──
+// 复用多会话路由(sidecar 原生支持并发 convId)+ fork 型隐藏 tab(不进标签栏/不持久化)。
+let checkup = null;   // { convs: {cid:{title,done,answer}}, cardEl, mainConv, seq }
+const CHECKUP_DIMS = [
+  { key: 'struct', title: '结构与信号流', prompt: '请用 model_overview/model_read 分析当前模型的结构:层级划分是否合理、信号流是否清晰、接口(Inport/Outport)定义是否规范。给出 3-5 条具体发现。' },
+  { key: 'risk', title: '建模风险', prompt: '请检查当前模型的建模风险:代数环、采样率混用、数据类型隐式转换、饱和/溢出风险、未初始化状态。给出 3-5 条具体发现(定位到 block)。' },
+  { key: 'test', title: '可测性与建议', prompt: '请评估当前模型的可测性:哪些行为值得建回归测试、边界工况有哪些、建议的测试激励。给出 3-5 条具体建议。' },
+];
+function startCheckup() {
+  if (checkup) { setStatus('已有体检在进行中'); return; }
+  const mainConv = activeConv;
+  const card = document.createElement('div');
+  card.className = 'mdiff stdrep open';
+  card.innerHTML = '<div class="head"><span class="mdicon">🩻</span><span>模型并行体检</span>' +
+    '<span class="mdsum">3 维度并行</span></div><div class="body">' +
+    CHECKUP_DIMS.map((d) => '<div class="chk-line" data-k="' + d.key + '">⏳ ' + d.title + ' — 分析中…</div>').join('') + '</div>';
+  useRender(mainConv); clearWelcome(); messages.appendChild(card); scrollDown();
+  checkup = { convs: {}, cardEl: card, mainConv };
+  CHECKUP_DIMS.forEach((d, i) => {
+    const cid = 'chk-' + Date.now() + '-' + i;
+    const pane = document.createElement('div');            // 脱离 DOM 的暗渲染容器
+    makeForkState(cid, pane);                               // isFork:不进标签栏/不持久化
+    checkup.convs[cid] = { key: d.key, title: d.title, done: false, answer: '' };
+    setBusy(true, cid);
+    toMatlab('user_message', { id: nextId(), text: d.prompt, convId: cid });
+  });
+  setStatus('并行体检启动(3 个子会话)…');
+}
+function checkupOnDone(cid, failed) {
+  if (!checkup || !checkup.convs[cid]) return false;
+  const c = checkup.convs[cid];
+  const t = tabs[cid];
+  if (!c.done) {
+    c.done = true;
+    if (!failed && t) {   // 取该子会话最后一条助手回答的原文
+      const bs = Object.values(t.bubbles || {});
+      if (bs.length) c.answer = String(bs[bs.length - 1].raw || '');
+    }
+    const line = checkup.cardEl.querySelector('.chk-line[data-k="' + c.key + '"]');
+    if (line) line.textContent = (failed || !c.answer ? '✕ ' : '✓ ') + c.title + (failed ? ' — 失败' : ' — 完成');
+  }
+  if (Object.values(checkup.convs).every((x) => x.done)) {   // 全部完成 → 主会话汇总
+    const parts = Object.values(checkup.convs).map((x) =>
+      '## ' + x.title + '\n' + (x.answer ? x.answer.slice(0, 1500) : '(该维度分析失败)').trim()).join('\n\n');
+    const mc = checkup.mainConv;
+    Object.keys(checkup.convs).forEach((k) => { const ft = tabs[k]; if (ft) delete tabs[k]; });  // 清理隐藏子会话
+    checkup = null;
+    useRender(mc);
+    addMsg('user', '🩻 汇总体检报告');
+    setBusy(true, mc);
+    toMatlab('user_message', { id: nextId(), convId: mc,
+      text: '三个并行子分析已完成,原始结果如下:\n\n' + parts +
+        '\n\n请把它们汇总成一份结构化的模型体检报告:总体评分、按严重度排序的问题清单(定位到 block)、改进建议优先级。' });
+  }
+  return true;
+}
+
+// ── SWDD 草稿卡(swdd_draft):骨架已落盘,预览 + AI 补全【待补】段落 ──
+function addSwddCard(msg) {
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  const pending = (String(msg.content || '').match(/【待补/g) || []).length;
+  const body = '<div style="color:var(--muted);font-size:10.5px">已写入 ' + escapeHtml(msg.file || '') + '(事实部分由模型自动提取)</div>' +
+    '<pre style="max-height:220px;overflow:auto;font-size:10.5px;margin-top:6px">' + escapeHtml(navClip(msg.content || '', 1600)) + '</pre>' +
+    '<div class="md-actions"><button class="ma-btn act-ai">🤖 AI 补全 ' + pending + ' 处【待补】描述</button></div>';
+  el.innerHTML = '<div class="head"><span class="mdicon">📄</span><span>SWDD 草稿 · ' + escapeHtml(String(msg.model || '')) + '</span>' +
+    '<span class="mdsum">' + pending + ' 处待补</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  el.querySelector('.act-ai').onclick = () => {
+    quickChat('🤖 补全 SWDD 描述', '以下是从模型 ' + msg.model + ' 自动提取的 SWDD 骨架(事实数据已就位,勿改动表格数值):\n\n' +
+      String(msg.content || '').slice(0, 9000) +
+      '\n\n请补全所有【待补】段落:模块概述、每个接口/参数的含义、子系统职责、Stateflow 模式策略、设计约束。' +
+      '基于模型结构合理推断,不确定的地方标注 (推测)。输出完整的最终 Markdown 文档。');
+  };
+  clearWelcome(); messages.appendChild(el); scrollDown();
 }
 
 function addPermission(msg) {
@@ -1265,14 +1758,15 @@ function renderContext(ctx) {
   const sub = ctx.currentSubsystem || '';
   const blocks = toArr(ctx.selectedBlocks);
   const vars = toArr(ctx.workspaceVars);
+  const upaths = toArr(ctx.userPaths);
 
-  // 计数 = 有内容的上下文「类别」数(文件/模型/选中块/工作区/报错),展示在图标上。
-  let count = (af.path ? 1 : 0) + (model ? 1 : 0) + (blocks.length ? 1 : 0) + (vars.length ? 1 : 0) + (ctx.lastError ? 1 : 0);
+  // 计数 = 有内容的上下文「类别」数(文件/模型/选中块/工作区/报错/已加载路径),展示在图标上。
+  let count = (af.path ? 1 : 0) + (model ? 1 : 0) + (blocks.length ? 1 : 0) + (vars.length ? 1 : 0) + (ctx.lastError ? 1 : 0) + (upaths.length ? 1 : 0);
   $('ctx-count').textContent = count;
   $('ctx-chip').title = count ? '当前上下文 ' + count + ' 项(悬停查看)' : '暂无上下文';
 
   // 仅内容变化时闪一下图标。
-  const key = JSON.stringify([af.path, af.line, model, sub, blocks, vars.length, !!ctx.lastError]);
+  const key = JSON.stringify([af.path, af.line, model, sub, blocks, vars.length, !!ctx.lastError, upaths.length]);
   if (key !== lastCtxKey) {
     lastCtxKey = key;
     const chip = $('ctx-chip'); chip.classList.remove('flash'); void chip.offsetWidth; chip.classList.add('flash');
@@ -1289,6 +1783,10 @@ function renderContext(ctx) {
     d.push(ctxRow('工作区', vars.length + ' 个:' + names + (vars.length > 12 ? ' …' : '')));
   }
   if (ctx.lastError) d.push(ctxRow('最近报错', escapeHtml(String(ctx.lastError).split('\n')[0]).slice(0, 240)));
+  if (upaths.length) {   // addpath 加载的文件夹:显示末段目录名,悬停看完整路径
+    const shown = upaths.slice(0, 8).map((p) => '<span title="' + escapeHtml(p) + '">' + escapeHtml(baseName(p)) + '</span>').join('、');
+    d.push(ctxRow('已加载路径', upaths.length + ' 个:' + shown + (upaths.length > 8 ? ' …' : '')));
+  }
   if (d.length === 1) d.push('<div class="ctx-row"><span>无可用上下文</span></div>');
   $('ctx-pop').innerHTML = d.join('');
 }
@@ -1459,6 +1957,7 @@ $('panes').addEventListener('contextmenu', (e) => {
   const bubble = e.target.closest && e.target.closest('.bubble.assistant');
   if (!bubble) return;
   if (bubble.classList.contains('streaming')) return;   // 流式中 DOM 在变,Range 会失效 → 放行系统菜单,不批注
+  if (bubble.closest('.fork-zone')) return;             // 分支讨论内不批注(批注只服务主会话)→ 放行系统菜单
   const picked = selectionRangeIn(bubble);   // 含 cloneRange,确认时用它高亮
   if (!picked) return;
   e.preventDefault();
@@ -1503,7 +2002,8 @@ $('btn-diagnose').onclick = () => { if (!activeTab().busy) { useRender(activeCon
 $('btn-explain').onclick = () => quickChat('📖 解释选中', '请解释选中的代码或选中的 Simulink block 的作用与原理;若没有选中,则解释当前文件/模型的整体功能。');
 $('btn-comment').onclick = () => quickChat('💬 给选中加注释', '请给选中的代码添加清晰的中文注释,保持逻辑和缩进不变,只返回加注释后的代码。');
 $('btn-test').onclick = () => quickChat('🧪 生成测试', '请为当前文件/选中代码或当前模型生成测试用例(MATLAB Test 的 functiontests 或 Simulink Test),覆盖正常、边界、异常情况,并说明如何运行。');
-$('btn-check').onclick = () => quickChat('✔ 标准检查', '请对当前 Simulink 模型运行建模标准检查(model_check / Simulink Check),按严重程度汇总问题并给出修复建议。');
+// ✔ 标准检查:先跑 MATLAB 本地确定性规则(秒回、零 token),报告卡上再按需让 AI 解释/深查。
+$('btn-check').onclick = () => { setStatus('本地规范检查中…'); toMatlab('standards_check', {}); };
 $('btn-find').onclick = () => {
   const q = $('input').value.trim();
   if (!q) { setStatus('在输入框描述要找的模块,再点「🔍 查找模块」'); return; }
@@ -1689,12 +2189,90 @@ function hidePops() { document.querySelectorAll('.popup').forEach((p) => p.class
 function togglePop(id) { const p = $(id); const wasHidden = p.classList.contains('hidden'); hidePops(); if (wasHidden) p.classList.remove('hidden'); }
 function showPop(id) { hidePops(); $(id).classList.remove('hidden'); }
 
-// 斜杠菜单
+// ── 功能注册表:菜单 / 意图匹配 / 情境建议 的单一数据源 ─────────────────────
+// run() 直接执行;需要参数的把模板填进输入框让用户补。keywords 用于「? 需求」本地秒匹配。
+function fillInput(tpl) { const i = $('input'); i.value = tpl; i.focus(); }
+const FEATURES = [
+  { cmd: '/fix', title: '🩺 错误诊断', desc: '抓取当前报错+上下文,定位根因并给修复', keys: '报错 错误 诊断 修复 fix error 不通 编译失败 跑不起来', run: () => $('btn-diagnose').click() },
+  { cmd: '', title: '📖 解释选中', desc: '解释选中的代码/block 的作用与原理', keys: '解释 看不懂 什么意思 作用 原理 explain', run: () => $('btn-explain').click() },
+  { cmd: '/test', title: '🧪 生成测试', desc: '为当前文件/模型生成测试用例', keys: '测试 用例 test 单元测试', run: () => $('btn-test').click() },
+  { cmd: '/check', title: '✔ 标准检查', desc: '本地建模规范秒查(命名/未连接/魔术数字…)', keys: '规范 标准 检查 命名 mab 违规 check', run: () => $('btn-check').click() },
+  { cmd: '', title: '🔍 查找模块', desc: '语义定位模块并画布高亮(先在输入框描述)', keys: '查找 找 定位 在哪 哪个块 find', run: () => { fillInput(''); setStatus('在输入框描述要找的模块,再点「🔍 查找模块」'); } },
+  { cmd: '', title: '🪄 批量编辑', desc: '自然语言批改所有目标块(逐处确认)', keys: '批量 全部 所有 都改 批改 batch', run: () => $('btn-batch').click() },
+  { cmd: '/testflow', title: '🧪▶ 测试编排', desc: '有 .mldatx 直接本地跑,否则 AI 生成→运行→汇总', keys: '跑测试 回归 test manager mldatx 测试套件', run: () => $('btn-testflow').click() },
+  { cmd: '', title: '🔄 自愈运行', desc: 'run→抓错→修→重跑,最多 3 轮', keys: '自愈 自动修 跑通 迭代 heal', run: () => $('btn-heal').click() },
+  { cmd: '/req', title: '📋 需求追溯', desc: '需求(飞书导出 CSV)↔ block 双向矩阵与锚定', keys: '需求 追溯 requirement 矩阵 覆盖 锚定', run: () => $('btn-req').click() },
+  { cmd: '/codegen', title: '🔬 代码评审', desc: 'MISRA 风险/复杂度/Coder 估算预审', keys: '代码评审 misra 复杂度 codegen 评审', run: () => $('btn-codegen').click() },
+  { cmd: '/capture', title: '📸 截图分析', desc: '导出模型画布图做视觉分析', keys: '截图 画布 视觉 capture', run: () => $('btn-capture').click() },
+  { cmd: '/mdiff', title: '◈ 版本对比', desc: '当前模型 vs git 历史版本的语义 diff', keys: '版本 对比 diff 历史 上个版本 改了什么 mr git', run: () => fillInput('/mdiff HEAD~1') },
+  { cmd: '/sf', title: '🔀 Stateflow 解析', desc: '状态机结构 + 不可达/无出口死逻辑检测', keys: '状态机 stateflow 状态 迁移 模式 chart 死逻辑', run: () => runSlash('/sf', '') },
+  { cmd: '/impact', title: '🕸 影响分析', desc: '改接口前先扫"谁在用它"', keys: '影响 改动 接口 信号 总线 谁在用 impact 牵连', run: () => fillInput('/impact ') },
+  { cmd: '/siminsight', title: '📈 仿真分析', desc: 'SDI 最近 run 指标(超调/稳定时间)+ 曲线', keys: '仿真结果 超调 稳定 曲线 震荡 分析 sdi 波形', run: () => runSlash('/siminsight', '') },
+  { cmd: '/sweep', title: '🎛 参数扫描', desc: '标定参数批扫仿真 → 取值×输出对照', keys: '参数 扫描 标定 敏感度 调参 sweep 试值', run: () => fillInput('/sweep ') },
+  { cmd: '/silcheck', title: '⚖ MIL vs SIL', desc: '生成代码与模型一致性 back-to-back', keys: 'sil mil 代码一致 embedded coder 生成代码 等价', run: () => runSlash('/silcheck', '') },
+  { cmd: '/night', title: '🌙 夜间批跑', desc: '定时批量任务,完成自动出晨报', keys: '夜间 定时 排程 批量任务 下班 晨报 night', run: () => fillInput('/night 23:30 ') },
+  { cmd: '/checkup', title: '🩻 并行体检', desc: '3 子会话同查结构/风险/可测性并汇总', keys: '体检 全面 检查一遍 评估 审查 checkup', run: () => runSlash('/checkup', '') },
+  { cmd: '/swdd', title: '📄 SWDD 文档', desc: '从模型生成设计文档骨架(接口/参数/结构)+ AI 补全', keys: '文档 swdd 设计文档 详设 接口表 写文档', run: () => runSlash('/swdd', '') },
+  { cmd: '', title: '📌 存经验', desc: '好的回答沉淀进团队经验库(.copilot_kb)', keys: '经验 沉淀 知识库 记下来 保存 kb', run: () => setStatus('在想沉淀的那条回答上点「📌 存经验」') },
+];
+const LOCAL_CMDS = FEATURES.filter((f) => f.cmd).map((f) => ({ name: f.cmd, desc: f.title.replace(/^\S+\s*/, '') + ':' + f.desc }));
+
+// 「? 需求」意图匹配:对用户口语描述按关键词打分,秒出前 3 个候选(零 token);匹配不到再交给 AI。
+function matchIntent(text) {
+  const t = String(text).toLowerCase();
+  return FEATURES.map((f) => {
+    let score = 0;
+    f.keys.split(/\s+/).forEach((k) => { if (k && t.includes(k.toLowerCase())) score += (k.length >= 2 ? 2 : 1); });
+    if (t.includes(f.title.replace(/^\S+\s*/, ''))) score += 3;
+    return { f, score };
+  }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
+}
+function showIntentCard(need) {
+  const matches = matchIntent(need);
+  const el = document.createElement('div');
+  el.className = 'mdiff stdrep open';
+  let body = '';
+  if (matches.length) {
+    body += matches.map((m, i) => '<div class="md-actions" style="margin-top:' + (i ? 4 : 8) + 'px">' +
+      '<button class="ma-btn act-ai intent-run" data-i="' + i + '">' + escapeHtml(m.f.title) + '</button>' +
+      '<span style="color:var(--muted);font-size:11px;align-self:center">' + escapeHtml(m.f.desc) + '</span></div>').join('');
+  } else {
+    body += '<div style="color:var(--muted);padding:4px 0">本地没匹配到合适的功能。</div>';
+  }
+  body += '<div class="md-actions"><button class="ma-btn intent-ai">🤖 让 AI 帮我选</button></div>';
+  el.innerHTML = '<div class="head"><span class="mdicon">🧭</span><span>功能匹配 · ' + escapeHtml(navClip(need, 30)) + '</span>' +
+    '<span class="mdsum">' + matches.length + ' 个候选</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
+  el.querySelectorAll('.intent-run').forEach((b) => { b.onclick = () => matches[+b.dataset.i].f.run(); });
+  el.querySelector('.intent-ai').onclick = () => {
+    const catalog = FEATURES.map((f) => '- ' + f.title + (f.cmd ? '(' + f.cmd + ')' : '') + ':' + f.desc).join('\n');
+    quickChat('🧭 帮我选功能:' + navClip(need, 40),
+      '我的需求:' + need + '\n\n面板可用功能目录:\n' + catalog +
+      '\n\n请推荐最合适的 1-2 个功能并说明怎么用(命令/按钮/要填什么参数);如果没有现成功能,直接告诉我怎么手工做。');
+  };
+  useRender(activeConv); clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 情境建议(确定性规则,每类一次,可关):基于 UI 可见信号,不烧 token 不打断 ──
+const nudged = {};
+function showNudge(key, text, actLabel, act) {
+  if (nudged[key]) return;
+  nudged[key] = true;
+  let bar = document.getElementById('nudge-bar');
+  if (!bar) { bar = document.createElement('div'); bar.id = 'nudge-bar'; $('panes').appendChild(bar); }
+  bar.innerHTML = '💡 ' + escapeHtml(text) + ' <span class="nb-act">' + escapeHtml(actLabel) + '</span><span class="nb-x">✕</span>';
+  bar.classList.add('show');
+  bar.querySelector('.nb-act').onclick = () => { bar.classList.remove('show'); act(); };
+  bar.querySelector('.nb-x').onclick = () => bar.classList.remove('show');
+  setTimeout(() => bar.classList.remove('show'), 30000);   // 30s 无操作自动收起
+}
+let mdiffCount = 0;   // 本会话 AI 改模型次数(触发复核建议)
 function buildSlash(filter) {
   const pop = $('slash-pop'); pop.classList.add('slash');
-  const cmds = (caps && caps.commands) || [];
+  const localNames = new Set(LOCAL_CMDS.map((c) => c.name));
+  const cmds = [...LOCAL_CMDS, ...(((caps && caps.commands) || []).filter((c) => !localNames.has(c.name)))];
   const f = (filter || '').toLowerCase();
-  const items = cmds.filter((c) => c.name.toLowerCase().indexOf(f) >= 0);
+  const items = cmds.filter((c) => (c.name + ' ' + (c.desc || '')).toLowerCase().indexOf(f) >= 0);
   pop.innerHTML = '<div class="pop-title">斜杠命令<span class="pop-hint">' + items.length + '</span></div>' +
     items.map((c) => '<button class="pop-item" data-cmd="' + escapeHtml(c.name) + '"><span class="pi-ic">/</span><div class="pi-txt"><b class="pi-cmd">' + escapeHtml(c.name) + '</b><small>' + escapeHtml(c.desc || '') + '</small></div></button>').join('');
   pop.querySelectorAll('.pop-item').forEach((it) => it.onclick = () => runSlash(it.dataset.cmd, ''));
@@ -1723,6 +2301,31 @@ function runSlash(name, args) {
     case '/model':  $('tb-model').focus(); break;
     case '/think':  $('tb-effort').focus(); break;
     case '/mode':   togglePop('modes-pop'); break;
+    // —— 本地高阶(确定性 MATLAB 模块,零 token)——
+    case '/mdiff':  setStatus('版本对比中…'); toMatlab('version_diff', { ref: args || 'HEAD~1' }); break;
+    case '/sf':     setStatus('解析 Stateflow…'); toMatlab('sf_explain', {}); break;
+    case '/impact': if (!args) { setStatus('用法:/impact 接口或变量名'); break; }
+                    setStatus('影响扫描中…'); toMatlab('impact_scan', { token: args }); break;
+    case '/siminsight': setStatus('分析最近仿真 run…'); toMatlab('sim_insight', {}); break;
+    case '/silcheck': if (!activeTab().busy) { useRender(activeConv); setBusy(true, activeConv); toMatlab('sil_check', {}); } break;
+    case '/checkup': startCheckup(); break;
+    case '/swdd': setStatus('生成 SWDD 骨架中…'); toMatlab('swdd_gen', {}); break;
+    case '/night': {
+      if (args === 'off') { toMatlab('night_cancel', {}); break; }
+      const nm = args.match(/^(\d{1,2}:\d{2})\s+(.+)$/);
+      if (!nm) { setStatus('用法:/night 23:30 任务一; 任务二(/night off 取消)'); break; }
+      const tasks = nm[2].split(/[;;]/).map((s) => s.trim()).filter(Boolean);
+      toMatlab('night_schedule', { time: nm[1], tasks });
+      break;
+    }
+    case '/sweep': {
+      const mm = args.match(/^(\S+)\s+(.+)$/);
+      const vals = mm ? mm[2].split(/[\s,]+/).map(Number).filter((x) => !isNaN(x)) : [];
+      if (!mm || !vals.length) { setStatus('用法:/sweep 变量名 0.5,1,2'); break; }
+      setStatus('参数扫描中(' + vals.length + ' 个取值)…');
+      toMatlab('param_sweep', { name: mm[1], values: vals });
+      break;
+    }
     // —— UI ——
     case '/clear':   $('btn-clear').click(); break;
     case '/context': toMatlab('request_context', {}); break;
@@ -1868,7 +2471,7 @@ function rebuildNavRail() {
   ensureNavRail();
   const t = activeTab(), pane = t && t.pane;
   if (!pane) { navRail.style.display = 'none'; return; }
-  const userRows = [...pane.querySelectorAll('.row.user')];
+  const userRows = [...pane.querySelectorAll(':scope > .row.user')];   // 仅直接子:排除 Fork 分支(嵌在气泡内的 .fork-msgs)里的用户行,否则导航轨会把 fork 轮次算进主会话
   if (userRows.length < NAV_MIN_TURNS) {   // 轮次太少:隐藏轨道,并清掉上一个 tab 残留的刻度/预览(否则切换会话后 DOM 里残留)
     navRail.style.display = 'none';
     [...navRail.querySelectorAll('.nav-tick')].forEach((x) => x.remove());
@@ -1945,6 +2548,13 @@ window.addEventListener('resize', scheduleNavRail);   // 视口变化 → 刻度
 // 初始化主标签页(会话 1)。
 makeTabState('main', '会话 1');
 switchTab('main');
+// 首次引导(仅一次):功能多记不住 → 教「? 需求」入口。
+try {
+  if (!localStorage.getItem('mc-intent-hint')) {
+    localStorage.setItem('mc-intent-hint', '1');
+    setTimeout(() => showNudge('intro', '功能太多记不住?输入「? 你的需求」我帮你选,如「? 想看这次改了什么」', '试一下', () => fillInput('? ')), 1200);
+  }
+} catch (e) {}
 // 预览模式(未连 MATLAB)无 context 推送,直接用 default key 恢复;连接模式则等首次 renderContext。
 if (!MC) ensureProjectKey(null);
 // 关闭/刷新前最后保存一次(防抖窗口内的改动不丢)。
@@ -1996,6 +2606,12 @@ $('input').addEventListener('keydown', (e) => {
     if (v.startsWith('/')) {
       const name = v.split(/\s+/)[0]; e.preventDefault(); e.stopImmediatePropagation();
       $('input').value = ''; hidePop('slash-pop'); runSlash(name, v.slice(name.length).trim());
+    } else if (v.startsWith('?') || v.startsWith('？')) {
+      // 「? 我的需求」→ 本地秒匹配功能(零 token),匹配不到卡片上再交给 AI 选。
+      const need = v.slice(1).trim();
+      e.preventDefault(); e.stopImmediatePropagation();
+      $('input').value = '';
+      if (need) showIntentCard(need); else setStatus('用法:? 后面接你的需求,如「? 想看这次改了什么」');
     }
   }
 }, true);

@@ -17,6 +17,8 @@ classdef Panel < handle
         PendingFindHits string = strings(0,1)  % 嗅探到的、属于当前模型的 block 路径(兜底高亮)
         Diag                           % matlabcopilot.Diagnostics:结构化诊断采集
         ActiveConv string = "main"     % 当前活动标签页 convId(随每个 UI 事件更新)
+        DiffPend                       % containers.Map:model_edit 前快照(key=convId|toolId)
+        NightTimer                     % 夜间批量任务定时器(timer;空=未排程)
     end
 
     methods
@@ -33,6 +35,7 @@ classdef Panel < handle
             obj.buildUI();
             obj.Figure.UserData = obj;  % 把面板存到图窗,供 Simulink 右键菜单按窗口查找(不留 persistent)
             obj.Diag = matlabcopilot.Diagnostics();  % 常驻诊断采集(前向捕获后续模型操作的诊断)
+            obj.DiffPend = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
             sidecarDir = fullfile(obj.RootDir, "sidecar");
             obj.Bridge = matlabcopilot.Bridge(sidecarDir, opts.Cwd, ...
@@ -124,6 +127,36 @@ classdef Panel < handle
                     try, clipboard('copy', char(getfieldor(data, 'text', ""))); catch, end
                 case "run_tasks"
                     obj.handleRunTasks();
+                case "standards_check"
+                    obj.handleStandardsCheck();
+                case "coverage_check"
+                    obj.handleCoverageCheck();
+                case "req_link"
+                    obj.handleReqLink(data);
+                case "version_diff"
+                    obj.handleVersionDiff(data);
+                case "sf_explain"
+                    obj.handleSfExplain();
+                case "impact_scan"
+                    obj.handleImpactScan(data);
+                case "sim_insight"
+                    obj.handleSimInsight();
+                case "param_sweep"
+                    obj.handleParamSweep(data);
+                case "sil_check"
+                    obj.handleSilCheck();
+                case "night_schedule"
+                    obj.handleNightSchedule(data);
+                case "night_cancel"
+                    obj.cancelNight(true);
+                case "swdd_gen"
+                    obj.handleSwdd();
+                case "kb_save"
+                    ok = matlabcopilot.KnowledgeBase.save(obj.Bridge.Cwd, ...
+                        getfieldor(data, 'q', ""), getfieldor(data, 'a', ""));
+                    kbTxt = "存经验失败";
+                    if ok; kbTxt = "📌 已存入团队经验库(.copilot_kb/)"; end
+                    obj.pushToUi(struct('type', "status", 'convId', char(obj.ActiveConv), 'text', kbTxt));
                 case "self_heal"
                     obj.handleSelfHeal();
                 case "capture_model"
@@ -242,6 +275,17 @@ classdef Panel < handle
         function handleUserMessage(obj, data)
             ctx = obj.contextWithAttachments();
             obj.pushContext();  % 顺手刷新顶栏,保证显示当前状态
+            % 经验库自动召回:新消息与既有沉淀条目指纹匹配 → 附进上下文(命中才带)。
+            try
+                hits = matlabcopilot.KnowledgeBase.recall(obj.Bridge.Cwd, ...
+                    string(getfieldor(data, 'text', "")) + " " + string(ctx.lastError), 2);
+                if ~isempty(hits)
+                    ctx.kbHits = hits;
+                    obj.pushToUi(struct('type', "status", 'convId', char(obj.ActiveConv), ...
+                        'text', "📚 命中团队经验库 " + numel(hits) + " 条,已附入上下文"));
+                end
+            catch
+            end
             % UI 可在 data.attach 里指明只带哪些上下文;默认全带。
             msg = struct('type', "user_message", ...
                 'id', getfieldor(data, 'id', char(matlab.lang.internal.uuid())), ...
@@ -379,7 +423,49 @@ classdef Panel < handle
         end
 
         function handleRequirements(obj)
-            % 「需求追溯」:反向推导需求条目,建立 block ↔ 需求双向追溯矩阵。
+            % 「需求追溯」:确定性优先——项目根有真实需求清单(requirements.csv/json,
+            % 飞书多维表格导出即可)时,直接生成锚定真实需求 ID 的双向追溯矩阵(零 token);
+            % 没有需求文件才退回 AI 反推(那只是"辅助起草",卡片会注明差别)。
+            cc  = char(obj.ActiveConv);
+            model = char(matlabcopilot.Context.currentModel());
+            if ~isempty(model)
+                [reqs, ~] = matlabcopilot.ReqTrace.loadRequirements(obj.Bridge.Cwd);
+                if ~isempty(reqs)
+                    obj.pushToUi(matlabcopilot.ReqTrace.matrix(model, obj.Bridge.Cwd, cc));
+                    return;
+                end
+            end
+            obj.aiRequirements();
+        end
+
+        function handleReqLink(obj, data)
+            % 追溯卡上的锚定操作:把「当前画布选中的 block」锚定到指定需求 ID(写 req_links.json)。
+            cc = char(obj.ActiveConv);
+            model = char(matlabcopilot.Context.currentModel());
+            reqId = strtrim(string(getfieldor(data, 'reqId', "")));
+            doUnlink = logical(getfieldor(data, 'unlink', false));
+            if isempty(model) || strlength(reqId) == 0; return; end
+            blk = "";
+            try, blk = string(gcb); catch, end
+            if strlength(blk) == 0 || blk == string(model)
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "请先在 Simulink 画布上选中要锚定的 block,再点锚定。"));
+                return;
+            end
+            ok = matlabcopilot.ReqTrace.linkBlock(obj.Bridge.Cwd, model, blk, reqId, doUnlink);
+            if ok
+                verb = "已锚定";
+                if doUnlink; verb = "已解除"; end
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', ...
+                    verb + ":" + matlabcopilot.ModelSearch.leafName(blk) + " ↔ " + reqId));
+                obj.pushToUi(matlabcopilot.ReqTrace.matrix(model, obj.Bridge.Cwd, cc));  % 即时刷新矩阵
+            else
+                obj.pushToUi(struct('type', "error", 'convId', cc, 'message', "写 req_links.json 失败"));
+            end
+        end
+
+        function aiRequirements(obj)
+            % AI 反推路径(无需求文件时的兜底,仅辅助起草,非真实追溯)。
             ctx = matlabcopilot.Context.snapshot();
             cc  = char(obj.ActiveConv);
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
@@ -470,8 +556,59 @@ classdef Panel < handle
         end
 
         function handleTestOrchestrate(obj)
-            % 「测试编排」:生成测试 → 运行 → 汇总,自适应 MATLAB 文件 / Simulink 模型。
-            % 运行类工具(runtests / model_test)仍走确认。
+            % 「测试编排」:确定性优先——项目里已有 Test Manager 用例(*.mldatx)且有
+            % Simulink Test 时,直接本地运行并结构化汇总(可复现、零 token);
+            % 没有现成用例才退回 AI 编排(生成 → 运行 → 汇总,运行类工具仍走确认)。
+            cc = char(obj.ActiveConv);
+            caps = matlabcopilot.TestBridge.caps();
+            if caps.sltest
+                files = matlabcopilot.TestBridge.findTestFiles(obj.Bridge.Cwd);
+                if ~isempty(files)
+                    obj.pushToUi(struct('type', "user_echo", 'convId', cc, ...
+                        'text', "🧪▶ 运行 Test Manager 用例(" + numel(files) + " 个文件)…"));
+                    try
+                        ev = matlabcopilot.TestBridge.runTestFiles(files, cc);
+                        obj.pushToUi(ev);
+                    catch err
+                        obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                            'message', "Test Manager 运行失败: " + string(err.message)));
+                    end
+                    % 收尾解除 UI busy(user_echo 会置 busy)。
+                    obj.pushToUi(struct('type', "result", 'convId', cc, 'ok', true, ...
+                        'id', '', 'text', '', 'costUsd', []));
+                    return;
+                end
+            end
+            obj.aiTestOrchestrate();
+        end
+
+        function handleCoverageCheck(obj)
+            % 「覆盖率缺口」:对当前模型本地跑一次覆盖率仿真(决策/条件/MCDC),
+            % 结构化缺口清单推 UI;补例建议由卡片上的 AI 按钮按需触发。
+            cc = char(obj.ActiveConv);
+            model = matlabcopilot.Context.currentModel();
+            if strlength(model) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "无打开的 Simulink 模型,请先打开一个模型。"));
+                return;
+            end
+            caps = matlabcopilot.TestBridge.caps();
+            if ~caps.coverage
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "本机无 Simulink Coverage license,无法统计覆盖率。"));
+                return;
+            end
+            obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "覆盖率仿真中(时长≈模型仿真时长)…"));
+            try
+                obj.pushToUi(matlabcopilot.TestBridge.coverageGaps(model, cc));
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "覆盖率统计失败: " + string(err.message)));
+            end
+        end
+
+        function aiTestOrchestrate(obj)
+            % AI 编排路径(无现成 .mldatx 用例时):生成 → 运行 → 汇总。
             ctx = matlabcopilot.Context.snapshot();
             cc  = char(obj.ActiveConv);
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
@@ -659,6 +796,233 @@ classdef Panel < handle
                 end
             end
             obj.pushToUi(msg);
+            % 模型语义 diff:旁路观察,放在转发之后——不让快照/截图拖慢 UI 看到工具卡的时间。
+            % (tool_use 的前快照仍在本回调内完成,Ask 模式下确认卡保证其先于实际执行。)
+            try, obj.trackModelDiff(msg); catch, end
+        end
+
+        function handleVersionDiff(obj, data)
+            % /mdiff <ref>:当前模型 vs git 历史版本的语义对比(结构+参数+截图)。
+            cc = char(obj.ActiveConv);
+            model = matlabcopilot.Context.currentModel();
+            if strlength(model) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
+                return;
+            end
+            ref = char(string(getfieldor(data, 'ref', "HEAD~1")));
+            obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "版本对比中(" + string(ref) + ")…"));
+            try
+                obj.pushToUi(matlabcopilot.VersionDiff.compare(model, ref, obj.Bridge.Cwd, cc));
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "版本对比失败: " + string(err.message)));
+            end
+        end
+
+        function handleSfExplain(obj)
+            % /sf:解析当前模型的 Stateflow chart(状态/迁移/死逻辑)。
+            cc = char(obj.ActiveConv);
+            model = matlabcopilot.Context.currentModel();
+            if strlength(model) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
+                return;
+            end
+            try
+                obj.pushToUi(matlabcopilot.SfExplain.report(model, cc));
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "Stateflow 解析失败: " + string(err.message)));
+            end
+        end
+
+        function handleImpactScan(obj, data)
+            % /impact <名字>:扫已加载模型里 信号/变量/tag 的全部使用点。
+            cc = char(obj.ActiveConv);
+            token = strtrim(string(getfieldor(data, 'token', "")));
+            if strlength(token) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "用法:/impact 接口或变量名"));
+                return;
+            end
+            try
+                obj.pushToUi(matlabcopilot.ImpactScan.scan(token, cc));
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "影响扫描失败: " + string(err.message)));
+            end
+        end
+
+        function handleSimInsight(obj)
+            % /siminsight:分析 SDI 最近一次仿真 run(指标 + 曲线图)。
+            cc = char(obj.ActiveConv);
+            try
+                obj.pushToUi(matlabcopilot.SimInsight.analyze(cc));
+            catch err
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', string(err.message)));
+            end
+        end
+
+        function handleParamSweep(obj, data)
+            % /sweep 变量 v1,v2,...:标定参数批扫仿真(阻塞式,取值数×单次仿真时长)。
+            cc = char(obj.ActiveConv);
+            model = matlabcopilot.Context.currentModel();
+            if strlength(model) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
+                return;
+            end
+            vn = strtrim(string(getfieldor(data, 'name', "")));
+            vals = getfieldor(data, 'values', []);
+            if strlength(vn) == 0 || isempty(vals)
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "用法:/sweep 变量名 0.5,1,2"));
+                return;
+            end
+            obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                'text', "参数扫描中(" + vn + " × " + numel(vals) + " 个取值)…"));
+            try
+                obj.pushToUi(matlabcopilot.ParamSweep.sweep(model, vn, double(vals), cc));
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "参数扫描失败: " + string(err.message)));
+            end
+        end
+
+        function handleSwdd(obj)
+            % /swdd:确定性提取模型事实 → SWDD Markdown 骨架落盘;AI 补全由卡片按钮触发。
+            cc = char(obj.ActiveConv);
+            model = matlabcopilot.Context.currentModel();
+            if strlength(model) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
+                return;
+            end
+            try
+                obj.pushToUi(matlabcopilot.DocGen.generate(model, obj.Bridge.Cwd, cc));
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "SWDD 生成失败: " + string(err.message)));
+            end
+        end
+
+        function handleSilCheck(obj)
+            % /silcheck:MIL vs SIL 一致性对比。确定性部分 = license 探测;
+            % 生成代码/搭 SIL 等价测试/跑对比 由 AI 编排(每步破坏性操作仍走确认)。
+            cc = char(obj.ActiveConv);
+            model = char(matlabcopilot.Context.currentModel());
+            if isempty(model)
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
+                return;
+            end
+            hasCoder = false; hasTest = false;
+            try, hasCoder = logical(license('test', 'RTW_Embedded_Coder')); catch, end
+            try, hasTest = matlabcopilot.TestBridge.caps().sltest; catch, end
+            if ~hasCoder
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "本机无 Embedded Coder license,无法做 SIL 对比。"));
+                return;
+            end
+            nl = newline;
+            capLine = "环境:Embedded Coder ✓";
+            if hasTest; capLine = capLine + ",Simulink Test ✓(优先用等价测试 EquivalenceTest)"; ...
+            else; capLine = capLine + ",无 Simulink Test(用 sim 两遍 + 结果对比脚本)"; end
+            prompt = [sprintf('任务:对模型 %s 做 MIL vs SIL back-to-back 一致性验证。', model) nl ...
+                char(capLine) nl ...
+                '步骤:' nl ...
+                '1. 检查模型代码生成配置(ert.tlc、求解器、数据类型),不满足则列出需要的修改并等我确认。' nl ...
+                '2. 生成生产代码(slbuild,会弹确认)。' nl ...
+                '3. 搭 SIL 对比:Simulink Test 等价测试 或 NormalMode/SIL 两次 sim。' nl ...
+                '4. 运行并对比各输出信号:最大绝对误差 / 相对误差,给出逐信号表格。' nl ...
+                '5. 结论:误差是否在容差内(默认 1e-6,可指出更合理容差);超差信号定位可能原因(数据类型/优化选项)。'];
+            obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
+                'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
+                'context', matlabcopilot.Context.snapshot(), 'attachments', {obj.Attachments}));
+            obj.Attachments = {};
+            obj.pushToUi(struct('type', "user_echo", 'convId', cc, 'text', "⚖ MIL vs SIL 一致性验证: " + string(model)));
+        end
+
+        function handleNightSchedule(obj, data)
+            % /night HH:MM 任务1; 任务2:到点把任务串灌入该会话的队列逐条执行(复用现有
+            % 队列/flushQueue 链),全部完成后 UI 侧自动导出 Markdown 晨报。MATLAB 需保持开着。
+            cc = char(obj.ActiveConv);
+            hhmm = strtrim(string(getfieldor(data, 'time', "")));
+            tasks = getfieldor(data, 'tasks', {});
+            if ~iscell(tasks); tasks = {tasks}; end
+            tk = regexp(char(hhmm), '^(\d{1,2}):(\d{2})$', 'tokens', 'once');
+            if isempty(tk) || isempty(tasks)
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "用法:/night 23:30 任务一; 任务二(/night off 取消)"));
+                return;
+            end
+            target = datetime('today') + hours(str2double(tk{1})) + minutes(str2double(tk{2}));
+            if target <= datetime('now'); target = target + days(1); end   % 已过点 → 明天
+            delaySec = max(1, seconds(target - datetime('now')));
+            obj.cancelNight(false);
+            obj.NightTimer = timer('StartDelay', delaySec, 'ExecutionMode', 'singleShot', ...
+                'Name', 'matlabcopilot_night', ...
+                'TimerFcn', @(~, ~) obj.fireNight(cc, tasks));
+            start(obj.NightTimer);
+            tstr = string(datetime(target, 'Format', 'MM-dd HH:mm'));
+            obj.pushToUi(struct('type', "status", 'convId', cc, 'text', ...
+                "已排程 " + tstr + " 执行 " + numel(tasks) + ...
+                " 个任务(需保持 MATLAB 开启;/night off 取消)"));
+        end
+
+        function fireNight(obj, cc, tasks)
+            % 定时到点:把任务串交给 UI 灌入队列(UI 复用 queue/flushQueue 逐条执行)。
+            try
+                obj.pushToUi(struct('type', "night_start", 'convId', cc, 'tasks', {tasks}));
+            catch
+            end
+            obj.cancelNight(false);
+        end
+
+        function cancelNight(obj, notify)
+            try
+                if ~isempty(obj.NightTimer) && isvalid(obj.NightTimer)
+                    stop(obj.NightTimer); delete(obj.NightTimer);
+                end
+            catch
+            end
+            obj.NightTimer = [];
+            if notify
+                obj.pushToUi(struct('type', "status", 'convId', char(obj.ActiveConv), 'text', "夜间任务已取消"));
+            end
+        end
+
+        function handleStandardsCheck(obj)
+            % 「✔ 标准检查」:先本地确定性规则秒查(零 token 成本),UI 出结构化报告卡;
+            % AI 深查(model_check / Simulink Check)由报告卡上的按钮按需触发。
+            cc = char(obj.ActiveConv);
+            model = matlabcopilot.Context.currentModel();
+            if strlength(model) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "无打开的 Simulink 模型,请先打开一个模型。"));
+                return;
+            end
+            obj.pushToUi(matlabcopilot.StandardsChecker.report(model, obj.Bridge.Cwd, cc));
+        end
+
+        function trackModelDiff(obj, msg)
+            % 模型语义 diff:tool_use(model_edit)时对目标块做前快照,
+            % tool_result(同 id)时做后快照并对比,有变化则推 model_diff 卡片给 UI。
+            % Ask 模式下执行等待确认卡,前快照必然先于实际改动;Auto 模式下事件先于
+            % MCP 往返到达,竞态窗口极小,即便偶发也只是"卡片不出现",无副作用。
+            if ~isfield(msg, 'type') || ~isfield(msg, 'id'); return; end
+            t = string(msg.type);
+            cid = "main";
+            if isfield(msg, 'convId') && ~isempty(msg.convId); cid = string(msg.convId); end
+            key = char(cid + "|" + string(msg.id));
+            if t == "tool_use" && isfield(msg, 'name') ...
+                    && matlabcopilot.ModelDiff.isEditTool(msg.name) && isfield(msg, 'input')
+                paths = matlabcopilot.ModelDiff.candidatePaths(msg.input);
+                if isempty(paths); return; end
+                if obj.DiffPend.Count > 20; remove(obj.DiffPend, keys(obj.DiffPend)); end  % 防泄漏兜底
+                obj.DiffPend(key) = matlabcopilot.ModelDiff.snapshot(paths);
+            elseif t == "tool_result" && isKey(obj.DiffPend, key)
+                before = obj.DiffPend(key);
+                remove(obj.DiffPend, key);
+                after = matlabcopilot.ModelDiff.snapshot(before.paths, before.parents);
+                d = matlabcopilot.ModelDiff.compare(before, after);
+                if isempty(d.changes) && isempty(d.added) && isempty(d.removed); return; end
+                obj.pushToUi(matlabcopilot.ModelDiff.buildEvent(cid, string(msg.id), d, before, after));
+            end
         end
 
         function handleInsertMode(obj, msg)
@@ -701,6 +1065,7 @@ classdef Panel < handle
             % 关闭:先尽力清理(各步独立 try,任一失败都不影响删窗口),最后无条件删窗口。
             % 这样点 X 永远能关掉,绝不会因清理报错而卡住。
             try, if ~isempty(obj.Diag) && isvalid(obj.Diag); delete(obj.Diag); end, catch, end
+            try, obj.cancelNight(false); catch, end   % 面板关了,夜间定时器一并撤(防孤儿 timer)
             try, obj.Bridge.close(); catch, end
             try, delete(obj.Figure); catch, end
         end

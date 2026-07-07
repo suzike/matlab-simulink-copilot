@@ -13,6 +13,20 @@ classdef Context
             snap.workspaceVars    = matlabcopilot.Context.workspaceVars();
             snap.lastError        = matlabcopilot.Context.lastError();
             snap.projectInfo      = matlabcopilot.Context.projectInfo(snap.activeFile.path);
+            snap.userPaths        = matlabcopilot.Context.userPaths();
+        end
+
+        function p = userPaths()
+            % 用户加载到 MATLAB 搜索路径的文件夹(排除 MATLAB 自带 toolbox 目录):
+            % 让 agent 感知 addpath 进来的代码库/共享库在哪,直接读得到、引用得对。
+            p = strings(0, 1);
+            try
+                mlroot = string(matlabroot);
+                parts = string(split(string(path), pathsep));
+                keep = parts(strlength(parts) > 0 & ~startsWith(parts, mlroot));
+                p = keep(1:min(30, end));   % 封顶:路径极多时只带前 30 个(userpath/新加的都靠前)
+            catch
+            end
         end
 
         function f = activeFile()

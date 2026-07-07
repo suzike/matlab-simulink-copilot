@@ -21,6 +21,17 @@ test('字段缺失/空字符串安全', () => {
   assert.equal(renderContextPreamble(null), '');
 });
 
+test('userPaths(addpath 文件夹)渲染进 preamble;单元素标量也兼容', () => {
+  const out = renderContextPreamble({ userPaths: ['C:/proj/lib', 'C:/proj/utils'] });
+  assert.match(out, /已加载到 MATLAB 路径的文件夹/);
+  assert.match(out, /C:\/proj\/lib\nC:\/proj\/utils/);
+  // MATLAB jsonencode 单元素 string 数组 → 标量字符串
+  const one = renderContextPreamble({ userPaths: 'C:/only/one' });
+  assert.match(one, /C:\/only\/one/);
+  // 空/缺失不产出该节
+  assert.equal(renderContextPreamble({ userPaths: [] }), '');
+});
+
 test('完整上下文含 activeFile/model/lastError', () => {
   const out = renderContextPreamble({
     activeFile: { path: 'C:/x/foo.m', selection: 'x = 1;' },
