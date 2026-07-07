@@ -161,20 +161,24 @@ classdef Bridge < handle
     methods (Static)
         function out = asciiJson(s)
             % 把字符串里所有非 ASCII 字符转成 \uXXXX(BMP 范围足够覆盖中文)。
-            cu = double(char(s));               % UTF-16 code units
-            if all(cu <= 127)
-                out = char(s);
+            % 性能关键:model_diff 等事件含 base64 截图(数十万字符)+ 少量中文;
+            % 只按"非 ASCII 的位置"分段拼接,循环次数 = 中文字符数(几十),而非总长(几十万)。
+            % 旧实现逐字符建 strings 数组,一次序列化卡数秒且阻塞 MATLAB 主线程(连带拖慢 MCP 工具)。
+            c = char(s);
+            pos = find(double(c) > 127);
+            if isempty(pos)
+                out = c;
                 return;
             end
-            buf = strings(1, numel(cu));
-            for i = 1:numel(cu)
-                if cu(i) > 127
-                    buf(i) = string(sprintf('\\u%04x', cu(i)));
-                else
-                    buf(i) = string(char(cu(i)));
-                end
+            segs = cell(1, 2 * numel(pos) + 1);
+            prev = 1;
+            for k = 1:numel(pos)
+                segs{2*k - 1} = c(prev:pos(k) - 1);
+                segs{2*k} = sprintf('\\u%04x', double(c(pos(k))));
+                prev = pos(k) + 1;
             end
-            out = char(strjoin(buf, ''));
+            segs{end} = c(prev:end);
+            out = [segs{:}];
         end
     end
 end
