@@ -24,6 +24,16 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.10.0 收口：统一安全与多会话可靠性
+
+- 新标签、Fork、隐藏体检会话首消息携带完整 config，sidecar 在 adapter 创建前应用。
+- Sidecar 会话使用 `ready/generation/dispatchEpoch/closed` 屏障；配置重建、Stop、关闭和旧事件回流互不串扰。
+- MATLAB `Panel` 增加 `ConfigByConv`、按会话 pending 状态和本地权限控制器；Plan 模式同时约束 MCP 与本地副作用操作。
+- 附件为一次性消息资源，派发后消费，Stop/关闭/销毁清理临时图片。
+- 11 个确定性模块的路径、Git ref、CSV/JSON、扫描值、Stateflow 和 SDI 输入完成安全加固。
+- 浅色主题权限卡对比度修复；README 与全部静态架构/流程图改为当前实现，实机截图由 MATLAB R2025b 重新导出。
+- 当前验证基线：sidecar **65 tests / 11 files**；UI 脚本语法与浏览器注入；MATLAB `checkcode`、类加载、真实面板截图。
+
 ### v1 骨架
 - Sidecar:协议/stream-json 解析/echo/claude 适配器/TCP server/权限确认 MCP。
 - MATLAB:`Panel`(可停靠 uifigure+uihtml)/`Bridge`(tcpclient 行协议)/`Context`(上下文采集)/`copilot.m` 入口。

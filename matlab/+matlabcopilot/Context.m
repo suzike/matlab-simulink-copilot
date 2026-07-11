@@ -8,11 +8,16 @@ classdef Context
             snap = struct();
             snap.activeFile       = matlabcopilot.Context.activeFile();
             snap.currentModel     = matlabcopilot.Context.currentModel();
+            snap.currentModelFile = matlabcopilot.Context.currentModelFile(snap.currentModel);
             snap.currentSubsystem = matlabcopilot.Context.currentSubsystem();
             snap.selectedBlocks   = matlabcopilot.Context.selectedBlocks();
             snap.workspaceVars    = matlabcopilot.Context.workspaceVars();
             snap.lastError        = matlabcopilot.Context.lastError();
-            snap.projectInfo      = matlabcopilot.Context.projectInfo(snap.activeFile.path);
+            seedPath = snap.activeFile.path;
+            if strlength(string(seedPath)) == 0
+                seedPath = snap.currentModelFile;
+            end
+            snap.projectInfo      = matlabcopilot.Context.projectInfo(seedPath);
             snap.userPaths        = matlabcopilot.Context.userPaths();
         end
 
@@ -90,6 +95,19 @@ classdef Context
                 end
             catch
                 m = "";
+            end
+        end
+
+        function p = currentModelFile(model)
+            % 当前模型对应的 .slx/.mdl 文件路径。只开模型、没开编辑器文件时用于推工程根。
+            p = "";
+            try
+                model = string(model);
+                if strlength(model) == 0; return; end
+                fileName = get_param(char(model), 'FileName');
+                if ~isempty(fileName); p = string(fileName); end
+            catch
+                p = "";
             end
         end
 

@@ -8,8 +8,10 @@ classdef ParamSweep
         function ev = sweep(model, varName, values, convId)
             m = char(model); vn = char(varName);
             values = double(values(:)');
+            values = values(isfinite(values));
             values = values(1:min(8, end));   % 一次最多 8 个取值(串行仿真,时长可控)
             if isempty(values); error('没有可用的取值。用法:/sweep 变量名 0.5,1,2'); end
+            if ~isvarname(vn); error('参数名必须是合法 MATLAB 变量名。'); end
 
             % 记住原值,扫完恢复(不存在则扫完清掉),不污染用户工作区。
             hadVar = evalin('base', sprintf('exist(''%s'', ''var'')', vn)) == 1;
@@ -18,13 +20,18 @@ classdef ParamSweep
             restore = onCleanup(@() matlabcopilot.ParamSweep.restoreVar(vn, hadVar, orig)); %#ok<NASGU>
 
             rows = {};
+            outputName = "yout";
+            try, outputName = string(get_param(m, 'OutputSaveName')); catch, end
             for i = 1:numel(values)
                 assignin('base', vn, values(i));
-                outs = {};
                 try
                     so = sim(m, 'ReturnWorkspaceOutputs', 'on', ...
                         'SaveOutput', 'on', 'SaveFormat', 'Dataset');
-                    outs = matlabcopilot.ParamSweep.outStats(so);
+                    outs = matlabcopilot.ParamSweep.outStats(so, outputName);
+                    if isempty(outs)
+                        outs = {struct('name', "未读取到输出", ...
+                            'final', "检查模型输出保存配置或信号类型", 'peak', "")};
+                    end
                 catch err
                     outs = {struct('name', "仿真失败", 'final', string(err.message), 'peak', "")};
                 end
@@ -34,22 +41,41 @@ classdef ParamSweep
                 'model', m, 'param', vn, 'rows', {rows});
         end
 
-        function outs = outStats(so)
+        function outs = outStats(so, outputName)
             outs = {};
             try
-                yout = so.yout;
+                if nargin < 2 || strlength(string(outputName)) == 0; outputName = "yout"; end
+                yout = so.get(char(outputName));
                 if ~isa(yout, 'Simulink.SimulationData.Dataset'); return; end
                 for k = 1:min(6, yout.numElements)
                     el = yout.getElement(k);
-                    y = double(el.Values.Data(:, 1));
-                    if isempty(y); continue; end
+                    vals = el.Values;
+                    data = double(vals.Data);
+                    if isempty(data); continue; end
+                    nTime = numel(vals.Time);
+                    if nTime > 0 && mod(numel(data), nTime) == 0
+                        samples = reshape(data, nTime, []);
+                    else
+                        samples = data(:);
+                    end
+                    final = matlabcopilot.ParamSweep.compactValue(samples(end, :));
+                    peak = matlabcopilot.ParamSweep.compactValue(max(abs(samples), [], 'all', 'omitnan'));
                     nm = string(el.Name);
                     if strlength(nm) == 0; nm = "out" + k; end
                     outs{end+1} = struct('name', nm, ...
-                        'final', round(y(end), 4), 'peak', round(max(abs(y)), 4)); %#ok<AGROW>
+                        'final', final, 'peak', peak); %#ok<AGROW>
                 end
             catch
             end
+        end
+
+        function v = compactValue(v)
+            if isempty(v)
+                v = "";
+                return;
+            end
+            v = round(double(v), 4);
+            if ~isscalar(v); v = string(mat2str(v)); end
         end
 
         function restoreVar(vn, hadVar, orig)

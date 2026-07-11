@@ -27,8 +27,20 @@ const DEFAULT_PROTOCOL = '2024-11-05';
 // ── 与主 sidecar 控制端口的连接(惰性建立 + 自动重连)────────────────────────
 let socket = null;
 let connecting = null;
-const pending = new Map(); // reqId -> {resolve}
+const pending = new Map(); // reqId -> {resolve,timer}
 let reqCounter = 0;
+
+function settlePending(id, decision) {
+  const p = pending.get(id);
+  if (!p) return;
+  pending.delete(id);
+  if (p.timer) clearTimeout(p.timer);
+  p.resolve(decision);
+}
+
+function settleAllPending(decision) {
+  for (const id of [...pending.keys()]) settlePending(id, decision);
+}
 
 function connect() {
   if (socket && !socket.destroyed) return Promise.resolve(socket);
@@ -43,15 +55,20 @@ function connect() {
     const feed = createLineBuffer((line) => {
       const msg = parseLine(line);
       if (!msg || msg.type !== 'permission_decision') return;
-      const p = pending.get(msg.id);
-      if (p) {
-        pending.delete(msg.id);
-        p.resolve({ approved: msg.approved === true, message: msg.message });
-      }
+      settlePending(msg.id, { approved: msg.approved === true, message: msg.message });
     });
     s.on('data', feed);
-    s.on('error', (err) => { connecting = null; reject(err); });
-    s.on('close', () => { socket = null; });
+    s.on('error', (err) => {
+      connecting = null;
+      if (socket === s) socket = null;
+      settleAllPending({ approved: false, message: `确认通道异常: ${err.message}` });
+      reject(err);
+    });
+    s.on('close', () => {
+      connecting = null;
+      if (socket === s) socket = null;
+      settleAllPending({ approved: false, message: '确认通道断开,已拒绝' });
+    });
   });
   return connecting;
 }
@@ -60,14 +77,14 @@ async function askApproval(toolName, input) {
   const s = await connect();
   const id = `perm-${++reqCounter}`;
   return new Promise((resolve) => {
-    pending.set(id, { resolve });
-    s.write(serialize({ type: 'permission_request', id, convId: CONV_ID, tool: toolName, input }) + '\n');
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       if (pending.has(id)) {
-        pending.delete(id);
-        resolve({ approved: false, message: '确认超时,已拒绝' });
+        settlePending(id, { approved: false, message: '确认超时,已拒绝' });
       }
     }, TIMEOUT_MS);
+    if (timer.unref) timer.unref();
+    pending.set(id, { resolve, timer });
+    s.write(serialize({ type: 'permission_request', id, convId: CONV_ID, tool: toolName, input }) + '\n');
   });
 }
 

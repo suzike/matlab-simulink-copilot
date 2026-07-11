@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+  <link rel="icon" href="data:,">
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>MATLAB Copilot</title>
@@ -10,7 +11,7 @@
   :root {
     --bg: #15161a; --surface: #1d1e24; --surface2: #25262e; --surface3: #2d2f38;
     --border: #34363f; --border2: #3f424d;
-    --text: #e9eaee; --muted: #9b9da7; --faint: #6c6e7a;
+    --text: #e9eaee; --text2: #b9bbc5; --muted: #9b9da7; --faint: #6c6e7a;
     --brand1: #b06bff; --brand2: #7c5cff;      /* agent / 品牌:紫色科技 */
     --user: #4ea1ff; --user2: #2d7fe0;          /* 用户:冷蓝 */
     --think: #9b8cff;                            /* 思考:紫 */
@@ -25,7 +26,7 @@
   html[data-theme="light"] {
     --bg: #f5f6f9; --surface: #ffffff; --surface2: #eef0f4; --surface3: #e3e6ec;
     --border: #e2e4ea; --border2: #d2d5de;
-    --text: #1b1c21; --muted: #5b5e6a; --faint: #8b8e9a;
+    --text: #1b1c21; --text2: #4f5260; --muted: #5b5e6a; --faint: #8b8e9a;
     --brand1: #7c3aed; --brand2: #6d4aff;
     --user: #2563eb; --user2: #1d4ed8;
     --think: #6d4aff;
@@ -220,7 +221,7 @@
   .row.user .msg-actions { justify-content: flex-end; }
   .ma-btn { background: transparent; border: 1px solid var(--border2); color: var(--muted);
             border-radius: 7px; padding: 2px 9px; font-size: 10.5px; cursor: pointer; transition: all .12s;
-            display: inline-flex; align-items: center; gap: 4px; }
+            display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: 0 0 auto; }
   .ma-btn:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); }
   .row.user .ma-btn { border-color: rgba(255,255,255,.18); color: #cdd9e8; }
   .row.user .ma-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
@@ -276,7 +277,9 @@
   .sn-x:hover { opacity: 1; color: var(--err); }
   /* Fork 分支区(嵌在卡片内) */
   .fork-zone { margin-top: 10px; border-top: 1px dashed var(--brand2); padding-top: 8px; }
-  .fork-head { font-size: 10.5px; color: var(--brand1); font-weight: 600; margin-bottom: 7px; }
+  .fork-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10.5px; color: var(--brand1); font-weight: 600; margin-bottom: 7px; }
+  .fork-close { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 1px 3px; }
+  .fork-close:hover { color: var(--err); }
   .fork-msgs { display: flex; flex-direction: column; gap: 8px; }
   .fork-msgs:empty { display: none; }
   .fork-msgs .avatar { width: 22px; height: 22px; } .fork-msgs .avatar svg { width: 12px; height: 12px; }
@@ -370,7 +373,7 @@
   /* 规范检查报告卡(复用 .mdiff 骨架)+ 卡片内操作按钮行 */
   .mdiff td.sev-error { color: var(--err); }
   .mdiff td.sev-warn { color: var(--warn); }
-  .mdiff .md-actions { display: flex; gap: 6px; margin-top: 9px; }
+  .mdiff .md-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
   .mdiff .md-actions .ma-btn { font-size: 11px; padding: 3px 10px; }
   .mdiff .ma-btn.act-ai { color: var(--brand2); border-color: color-mix(in srgb, var(--brand2) 45%, transparent); }
   .mdiff .ma-btn.act-ai:hover { background: color-mix(in srgb, var(--brand2) 14%, transparent); }
@@ -382,8 +385,9 @@
                border-radius: 10px; padding: 6px 10px; font-size: 11.5px; color: var(--text);
                box-shadow: var(--shadow); display: none; align-items: center; gap: 8px; }
   #nudge-bar.show { display: flex; }
+  #nudge-bar .nb-msg { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #nudge-bar .nb-act { color: var(--brand2); cursor: pointer; white-space: nowrap; font-weight: 600; }
-  #nudge-bar .nb-x { color: var(--muted); cursor: pointer; padding: 0 2px; }
+  #nudge-bar .nb-x { color: var(--muted); cursor: pointer; padding: 0 2px; white-space: nowrap; }
 
   /* ── 权限确认 ── */
   .perm { margin-left: 39px; max-width: calc(82% - 0px); background: linear-gradient(180deg, #322a16, #2a230f);
@@ -391,9 +395,13 @@
   .perm .q { margin-bottom: 8px; display: flex; gap: 7px; align-items: center; color: #ffe2ad; }
   .perm .q svg { width: 16px; height: 16px; flex: 0 0 auto; }
   .perm .tool-name { font-family: var(--mono); color: var(--warn); }
+  .perm .diff-model, .perm .diff-file, .perm .diff-block, .perm .diff-param { color: #f3e8c7; }
+  .perm .diff-model code { color: #fff5d6; background: rgba(0,0,0,.28); }
   .perm pre { background: var(--code-bg); border-radius: 7px; padding: 7px; overflow: auto; font-size: 11px; max-height: 170px; margin: 0 0 9px; }
   .perm .btns { display: flex; gap: 8px; }
-  .perm button { border: none; border-radius: 8px; padding: 6px 16px; cursor: pointer; font-size: 12px; font-weight: 600; }
+  .perm button { border: none; border-radius: 8px; min-width: max-content; padding: 6px 16px; cursor: pointer;
+                 font-size: 12px; font-weight: 600; line-height: 1; white-space: nowrap; flex: 0 0 auto;
+                 display: inline-flex; align-items: center; justify-content: center; }
   .perm .allow { background: linear-gradient(135deg, var(--ok), #2fae72); color: #06140d; }
   .perm .deny { background: var(--surface3); color: var(--text); border: 1px solid var(--border2); }
   .perm.resolved { opacity: .55; } .perm.resolved button { display: none; }
@@ -445,9 +453,11 @@
 
   /* ── 底部输入 ── */
   footer { border-top: 1px solid var(--border); background: rgba(29,30,36,.7); backdrop-filter: blur(6px); padding: 9px; }
-  .quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+  .quick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; }
   .quick button { background: var(--surface2); border: 1px solid var(--border2); color: var(--muted);
-                  border-radius: 8px; padding: 4px 10px; font-size: 11px; cursor: pointer; transition: all .14s; }
+                  border-radius: 8px; min-width: max-content; height: 28px; padding: 0 10px; font-size: 11px;
+                  line-height: 1; white-space: nowrap; overflow: hidden; flex: 0 0 auto; cursor: pointer;
+                  display: inline-flex; align-items: center; justify-content: center; transition: all .14s; }
   .quick button:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); transform: translateY(-1px); }
   /* 悬停 2 秒弹出的功能说明气泡 */
   #tip { position: fixed; z-index: 9999; max-width: 280px; background: var(--surface3, #2a2b33);
@@ -460,10 +470,10 @@
               border-radius: 12px; padding: 6px; transition: border-color .15s; }
   .inputrow:focus-within { border-color: var(--brand2); box-shadow: 0 0 0 3px rgba(124,92,255,.12); }
   #input { flex: 1; resize: none; background: transparent; color: var(--text); border: none; outline: none;
-           padding: 5px 6px; font-family: var(--font); font-size: 13px; max-height: 150px; min-height: 30px; line-height: 1.5; }
+           min-width: 0; padding: 5px 6px; font-family: var(--font); font-size: 13px; max-height: 150px; min-height: 30px; line-height: 1.5; }
   #input::placeholder { color: var(--faint); }
   #send, #stop { border: none; border-radius: 9px; padding: 0 14px; height: 36px; cursor: pointer; font-size: 13px; font-weight: 600;
-                 display: inline-flex; align-items: center; gap: 6px; }
+                 display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; flex: 0 0 auto; }
   #send { background: linear-gradient(135deg, var(--brand1), var(--brand2)); color: #fff; box-shadow: 0 3px 12px rgba(124,92,255,.3); }
   #send:disabled { opacity: .45; cursor: default; box-shadow: none; }
   #send svg, #stop svg { width: 14px; height: 14px; }
@@ -487,7 +497,8 @@
               border: 1px solid var(--border2); border-radius: 9px; overflow: hidden; }
   .tb-group .tb-div { width: 1px; height: 16px; background: var(--border2); flex: 0 0 auto; }
   .tb-group .seg, .tb-group .sel { height: 100%; background: transparent; border: none; color: var(--text);
-              font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center; }
+              font-size: 11.5px; cursor: pointer; display: inline-flex; align-items: center;
+              white-space: nowrap; flex: 0 0 auto; }
   .tb-group .seg { padding: 0 10px; gap: 5px; } .tb-group .seg:hover { background: var(--surface3); }
   .tb-group .sel { padding: 0 6px; max-width: 130px; }
   .tb-group .sel:hover { background: var(--surface3); } .tb-group .sel option { background: var(--surface); }
@@ -495,6 +506,12 @@
   #tb-fast.on { color: var(--brand1); border-color: var(--brand2); background: var(--surface3); font-weight: 600; }
   #tb-fast.disabled { opacity: .4; pointer-events: none; }
   #tb-backend::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--brand1); }
+  @media (max-width: 720px) {
+    .toolbar { flex-wrap: wrap; }
+    .toolbar .tb-spacer { display: none; }
+    .tb-group { order: 2; width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; justify-content: flex-start; }
+    .tb-group .seg, .tb-group .sel { flex: 0 0 auto; }
+  }
 
   .popup { position: absolute; bottom: 64px; right: 12px; width: 290px; background: var(--surface2);
            border: 1px solid var(--border2); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.45);
@@ -642,7 +659,17 @@ function setup(htmlComponent) {
 }
 // 所有 UI→MATLAB 事件默认带当前活动标签 convId(全局事件 MATLAB 会忽略它,后端事件据此路由);
 // data 里若显式给了 convId(如关闭别的标签)则以 data 为准。
-function toMatlab(name, data) { if (MC) { try { MC.sendEventToMATLAB(name, { convId: activeConv, ...(data || {}) }); } catch (err) {} } }
+function toMatlab(name, data) {
+  if (!MC) return;
+  const payload = { convId: activeConv, ...(data || {}) };
+  // 新标签/Fork 尚未在 sidecar 建立时，首条消息必须携带 UI 中继承的完整配置。
+  // 所有事件都带上它，也让 MATLAB 本地动作遵守该会话的 Plan/Ask/Auto 模式。
+  try {
+    const t = tabs[payload.convId];
+    if (t && t.config) payload.config = { ...t.config, ...(payload.config || {}) };
+  } catch (err) {}
+  try { MC.sendEventToMATLAB(name, payload); } catch (err) {}
+}
 
 // ── DOM ────────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -651,6 +678,7 @@ const $ = (id) => document.getElementById(id);
 // thinks/config/auditLog 始终「指向」当前渲染目标那一套(按 convId 切换),这样海量已有
 // 渲染代码无需改动,只在处理每条事件/动作前把指针指对即可。
 const tabs = {};            // convId -> tab
+const closedConvs = new Set(); // 已关闭会话的 tombstone：丢弃 adapter 迟到事件，防幽灵标签重建
 let activeConv = 'main';
 let tabSeq = 1;
 let messages, bubbles, thinks;   // 当前渲染目标(指向某 tab 的 pane/bubbles/thinks)
@@ -662,6 +690,7 @@ const nextId = () => 'u' + (++uid);
 const WELCOME_HTML = '<div class="welcome"><div class="w-logo">✦</div><div class="w-title">MATLAB Copilot</div>' +
   '<div class="w-motto">Code is cheap, <em>Show me your Harness!</em></div><div class="w-sig">© 林南橘</div></div>';
 function makeTabState(convId, name) {
+  closedConvs.delete(convId);
   const pane = document.createElement('div');
   pane.className = 'pane'; pane.dataset.conv = convId;
   pane.innerHTML = WELCOME_HTML;
@@ -927,8 +956,12 @@ function resetToEdit(row, text) {
   useRender(activeConv);
   toMatlab('interrupt', {}); setBusy(false, activeConv);
   // 删掉此条及其后的所有消息行(在当前活动标签的 pane 内)。
-  while (row && row.nextSibling) messages.removeChild(row.nextSibling);
-  if (row) messages.removeChild(row);
+  while (row && row.nextSibling) {
+    const victim = row.nextSibling;
+    disposeForksWithin(victim);
+    messages.removeChild(victim);
+  }
+  if (row) { disposeForksWithin(row); messages.removeChild(row); }
   const inp = $('input');
   inp.value = text; inp.focus();
   inp.style.height = 'auto'; inp.style.height = Math.min(inp.scrollHeight, 150) + 'px';
@@ -1072,10 +1105,29 @@ function annotateFromBubble(bubbleEl) {
 // Fork:在该卡片内开一条「以本卡片内容为种子」的独立子会话,回答嵌在卡片里。
 let forkSeq = 0;
 function makeForkState(convId, paneEl) {
+  closedConvs.delete(convId);
   const t = { convId, name: convId, pane: paneEl, bubbles: {}, thinks: {}, busy: false,
               config: Object.assign({}, activeTab() ? activeTab().config : {}), auditLog: [], isFork: true, sendBtn: null, queue: [], pendingNotes: [] };
   tabs[convId] = t;
   return t;
+}
+function closeFork(convId, zone) {
+  if (!convId) return;
+  const t = tabs[convId];
+  const holder = zone || (t && t.pane && t.pane.closest('.fork-zone'));
+  cancelErrorFinish(convId);
+  if (!closedConvs.has(convId)) {
+    closedConvs.add(convId);
+    toMatlab('close_conv', { convId });
+  }
+  delete tabs[convId];
+  if (holder) holder.remove();
+}
+function disposeForksWithin(root) {
+  if (!root || !root.querySelectorAll) return;
+  const zones = [...root.querySelectorAll('.fork-zone[data-conv]')];
+  if (root.matches && root.matches('.fork-zone[data-conv]')) zones.unshift(root);
+  zones.forEach((zone) => closeFork(zone.dataset.conv, zone));
 }
 function startFork(parent) {
   if (!parent || !parent.el || parent.el.querySelector('.fork-zone')) return;  // 每卡片一个分支区
@@ -1083,13 +1135,15 @@ function startFork(parent) {
   const convId = 'fork-' + (++forkSeq);
   const zone = document.createElement('div');
   zone.className = 'fork-zone';
-  zone.innerHTML = '<div class="fork-head">⑂ 分支讨论(基于本回答,独立上下文)</div><div class="fork-msgs"></div>' +
+  zone.dataset.conv = convId;
+  zone.innerHTML = '<div class="fork-head"><span>⑂ 分支讨论(基于本回答,独立上下文)</span><button class="fork-close" title="关闭分支">×</button></div><div class="fork-msgs"></div>' +
     '<div class="fork-input-row"><textarea class="fork-input" rows="1" placeholder="基于这条回答继续提需求…(Enter 发送)"></textarea><button class="fork-send">发送</button></div>';
   parent.el.appendChild(zone);
   const fs = makeForkState(convId, zone.querySelector('.fork-msgs'));
   const inp = zone.querySelector('.fork-input');
   const btn = zone.querySelector('.fork-send');
   fs.sendBtn = btn;
+  zone.querySelector('.fork-close').onclick = () => disposeForksWithin(zone);
   let seeded = false;
   const doSend = () => {
     const text = inp.value.trim();
@@ -1154,6 +1208,7 @@ function onSidecar(msg) {
   }
   // 标签页相关事件:把渲染指针指向该会话的 pane,状态/busy 只在它是当前活动标签时影响顶栏。
   const cid = msg.convId || 'main';
+  if (closedConvs.has(cid)) return;
   useRender(cid);
   const onActive = (cid === activeConv);
   switch (msg.type) {
@@ -1182,12 +1237,17 @@ function onSidecar(msg) {
     case 'sweep_report': addSweepCard(msg); break;             // 参数扫描卡
     // 夜间批量:到点后首条直发、其余入队(复用 queue/flushQueue 链),队空自动导出晨报。
     case 'night_start': {
-      const tasks = (msg.tasks || []).map(String).filter(Boolean);
+      const tasks = toArr(msg.tasks).map(String).map((x) => x.trim()).filter(Boolean);
       if (!tasks.length) break;
       const t = tabs[cid]; if (!t) break;
       t.nightMode = true;
       useRender(cid);
       addMsg('user', '🌙 夜间批量任务开始(' + tasks.length + ' 项)');
+      if (t.busy) {
+        tasks.forEach((x) => t.queue.push({ id: nextId(), text: x }));
+        if (cid === activeConv) { renderQueuePanel(); setStatus('夜间任务已排队，当前回答结束后开始'); }
+        break;
+      }
       tasks.slice(1).forEach((x) => t.queue.push({ id: nextId(), text: x }));
       if (cid === activeConv) renderQueuePanel();
       addUserMessage(tasks[0]);
@@ -1196,23 +1256,20 @@ function onSidecar(msg) {
     }
     case 'permission_request': addPermission(msg); break;
     case 'result': {
+      cancelErrorFinish(cid);
       setBusy(false, cid);
       if (checkupOnDone(cid, !msg.ok)) break;   // 体检子会话:只收集结果,不走主流程
       if (msg.costUsd != null) updateCostBar(msg.costUsd, cid);
       if (onActive) setStatus(msg.ok ? '完成' : '出错');
       flushQueue(cid);
-      const t = tabs[cid];   // 夜间批量:队列排空且本轮已结 → 自动导出 Markdown 晨报
-      if (t && t.nightMode && !t.busy && (!t.queue || !t.queue.length)) {
-        t.nightMode = false;
-        try { exportSession(); setStatus('🌙 夜间任务全部完成,晨报已导出'); } catch (e) {}
-      }
+      finishNightIfIdle(cid);
       break;
     }
     // MATLAB figure 兜底 Esc 中断:用户主动停 → 清该会话队列(停就全停,避免卡死)。
-    case 'interrupted': { setBusy(false, cid); const t = tabs[cid]; if (t && t.queue && t.queue.length) { t.queue = []; if (cid === activeConv) renderQueuePanel(); } if (onActive) setStatus('已中断'); break; }
-    // 出错也是一种回合终结:flush 队列下一条,避免排队消息因没收到 result 而永久卡住。
+    case 'interrupted': { cancelErrorFinish(cid); setBusy(false, cid); const t = tabs[cid]; if (t) { t.nightMode = false; if (t.queue && t.queue.length) { t.queue = []; if (cid === activeConv) renderQueuePanel(); } } if (onActive) setStatus('已中断'); break; }
+    // 后端失败通常紧跟 RESULT；延迟兜底可兼容仅发 ERROR 的路径，同时避免队列推进两次。
     case 'error': setBusy(false, cid); if (checkupOnDone(cid, true)) break;
-                  addMsg('error', escapeHtml(msg.message || '未知错误')); flushQueue(cid);
+                  addMsg('error', escapeHtml(msg.message || '未知错误')); deferErrorFinish(cid);
                   if (onActive) showNudge('err', '出错了?一键带完整上下文诊断', '🩺 诊断', () => $('btn-diagnose').click());
                   break;
     case 'user_echo': addMsg('user', escapeHtml(msg.text || '')); setBusy(true, cid); break;
@@ -1363,7 +1420,8 @@ function addTestRunCard(msg) {
 // ── 覆盖率缺口卡(coverage_report):决策/条件/MCDC 百分比 + 块级缺口清单 ──
 function covPct(pair) { return (pair && pair.length >= 2 && pair[1] > 0) ? Math.round(pair[0] / pair[1] * 100) + '%(' + pair[0] + '/' + pair[1] + ')' : '—'; }
 function addCoverageCard(msg) {
-  const gaps = msg.gaps || [];
+  const gaps = toArr(msg.gaps);
+  const hasMetrics = [msg.decision, msg.condition, msg.mcdc].some((p) => Array.isArray(p) && p.length >= 2 && p[1] > 0);
   const el = document.createElement('div');
   el.className = 'mdiff stdrep open';
   let body = '<div class="md-chips">' +
@@ -1376,11 +1434,13 @@ function addCoverageCard(msg) {
       '<td>' + escapeHtml(g.metric) + '</td>' +
       '<td class="sev-warn">' + escapeHtml(g.hit + ' / ' + g.total) + '</td></tr>').join('') + '</table>' +
       '<div class="md-actions"><button class="ma-btn act-ai">🤖 AI 按缺口建议补例</button></div>';
-  } else {
+  } else if (hasMetrics) {
     body += '<div style="color:var(--ok);padding:4px 0;">✅ 未发现决策/条件覆盖缺口</div>';
+  } else {
+    body += '<div style="color:var(--muted);padding:4px 0;">当前模型没有可用的覆盖率指标。</div>';
   }
   el.innerHTML = '<div class="head"><span class="mdicon">📊</span><span>覆盖率 · ' + escapeHtml(String(msg.model || '')) + '</span>' +
-    '<span class="mdsum">' + (gaps.length ? gaps.length + ' 处缺口' : '无缺口') + '</span></div><div class="body">' + body + '</div>';
+    '<span class="mdsum">' + (gaps.length ? gaps.length + ' 处缺口' : (hasMetrics ? '无缺口' : '无可用指标')) + '</span></div><div class="body">' + body + '</div>';
   el.querySelector('.head').onclick = () => el.classList.toggle('open');
   const ai = el.querySelector('.act-ai');
   if (ai) ai.onclick = () => {
@@ -1612,7 +1672,12 @@ function checkupOnDone(cid, failed) {
     const parts = Object.values(checkup.convs).map((x) =>
       '## ' + x.title + '\n' + (x.answer ? x.answer.slice(0, 1500) : '(该维度分析失败)').trim()).join('\n\n');
     const mc = checkup.mainConv;
-    Object.keys(checkup.convs).forEach((k) => { const ft = tabs[k]; if (ft) delete tabs[k]; });  // 清理隐藏子会话
+    Object.keys(checkup.convs).forEach((k) => {
+      cancelErrorFinish(k);
+      closedConvs.add(k);
+      delete tabs[k];
+      toMatlab('close_conv', { convId: k });
+    });
     checkup = null;
     useRender(mc);
     addMsg('user', '🩻 汇总体检报告');
@@ -1648,9 +1713,11 @@ function addPermission(msg) {
   const el = document.createElement('div');
   el.className = 'perm';
   const label = diffLabel(msg.diff);
-  const bodyHtml = msg.diff
+  const actionHtml = msg.action
+    ? '<div class="diff-model">操作: ' + escapeHtml(msg.action) + '</div>' : '';
+  const bodyHtml = actionHtml + (msg.diff
     ? renderDiff(msg.diff)
-    : '<pre>' + escapeHtml(JSON.stringify(msg.input, null, 2)) + '</pre>';
+    : '<pre>' + escapeHtml(JSON.stringify(msg.input, null, 2)) + '</pre>');
   el.innerHTML =
     '<div class="q">' + ICON.warn +
     '<span>' + label + '<span class="tool-name">' + escapeHtml(msg.tool) + '</span></span></div>' +
@@ -1663,7 +1730,8 @@ function addPermission(msg) {
 function diffLabel(diff) {
   if (!diff) return '即将执行可能有副作用的操作：';
   return { model_edit: '即将修改 Simulink 模型：', code_exec: '即将执行 MATLAB 代码：',
-           file_run: '即将运行脚本文件：', model_test: '即将运行模型测试：' }[diff.type] || '即将执行：';
+           file_run: '即将运行脚本文件：', file_write: '即将写入本地文件：',
+           model_test: '即将运行模型测试：' }[diff.type] || '即将执行：';
 }
 function renderDiff(diff) {
   switch (diff.type) {
@@ -1684,6 +1752,9 @@ function renderDiff(diff) {
     case 'file_run':
       return '<div class="diff-file">📄 ' + escapeHtml(diff.file) +
              (diff.args ? '  ' + escapeHtml(diff.args) : '') + '</div>';
+    case 'file_write':
+      return '<div class="diff-file">📄 ' + escapeHtml(diff.file || '') +
+             (diff.exists ? '<div class="sev-warn">现有文件将被覆盖</div>' : '') + '</div>';
     case 'model_test':
       return '<div class="diff-file">🧪 ' + escapeHtml(diff.model) + '</div>';
     default:
@@ -1826,9 +1897,12 @@ function renderCostBar() {
 }
 
 // ── 会话导出 ──────────────────────────────────────────────────────────────
-function exportSession() {
-  const tab = activeTab();
-  if (!tab.history || !tab.history.length) { setStatus('当前会话无可导出的内容'); return; }
+function exportSession(convId) {
+  const tab = tabs[convId || activeConv];
+  if (!tab || !tab.history || !tab.history.length) {
+    if (!convId || convId === activeConv) setStatus('当前会话无可导出的内容');
+    return false;
+  }
   // 直接用 history(含恢复的历史):assistant 用原始 markdown,user 用 html 去标签为纯文本。
   const tmp = document.createElement('div');
   const lines = ['# MATLAB Copilot 会话记录\n'];
@@ -1845,6 +1919,7 @@ function exportSession() {
   a.href = 'data:text/markdown;charset=utf-8,' + encodeURIComponent(md);
   a.download = 'copilot-' + ts + '.md';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  return true;
 }
 
 let lastSentMsg = '';
@@ -1921,6 +1996,30 @@ function flushQueue(convId) {
   useRender(convId);
   addUserMessage(item.text);     // 轮到了 → 进对话流显示
   sendToBackend(item.text, convId);
+}
+function cancelErrorFinish(convId) {
+  const t = tabs[convId];
+  if (t && t.errorFinishTimer) { clearTimeout(t.errorFinishTimer); t.errorFinishTimer = null; }
+}
+function deferErrorFinish(convId) {
+  const t = tabs[convId]; if (!t) return;
+  cancelErrorFinish(convId);
+  t.errorFinishTimer = setTimeout(() => {
+    const current = tabs[convId]; if (!current) return;
+    current.errorFinishTimer = null;
+    if (current.busy) return;
+    flushQueue(convId);
+    finishNightIfIdle(convId);
+  }, 1000);
+}
+function finishNightIfIdle(convId) {
+  const t = tabs[convId];
+  if (!t || !t.nightMode || t.busy || (t.queue && t.queue.length)) return;
+  t.nightMode = false;
+  try {
+    const exported = exportSession(convId);
+    if (exported && convId === activeConv) setStatus('🌙 夜间任务全部完成,晨报已导出');
+  } catch (e) {}
 }
 // 渲染右下角待发送队列(显示当前活动标签的队列;每条按 id 单独删)。
 function renderQueuePanel() {
@@ -2055,7 +2154,9 @@ $('btn-cursor').onclick = () => {
   const text = $('input').value.trim();
   if (!text) { setStatus('在输入框写要生成的内容,再点「生成到光标」'); return; }
   if (activeTab().busy) return;
+  useRender(activeConv);
   $('input').value = '';
+  setBusy(true, activeConv);
   setStatus('正在生成到光标处…');
   toMatlab('ask_at_cursor', { text });
 };
@@ -2073,7 +2174,7 @@ $('btn-refresh').onclick = () => { toMatlab('request_context', {}); setStatus('�
   chip.addEventListener('mouseenter', show);
   chip.addEventListener('mouseleave', hide);
 })();
-$('btn-clear').onclick = () => { const t = activeTab(); t.pane.innerHTML = WELCOME_HTML; t.bubbles = {}; t.thinks = {}; t.history = []; t.pendingNotes = []; renderNotesArea(); useRender(activeConv); scheduleNavRail(); saveSession(); };   // 清屏同时清便签(高亮的 mark 随 pane 一起没了)+ 收起导航轨
+$('btn-clear').onclick = () => { const t = activeTab(); disposeForksWithin(t.pane); t.pane.innerHTML = WELCOME_HTML; t.bubbles = {}; t.thinks = {}; t.history = []; t.pendingNotes = []; renderNotesArea(); useRender(activeConv); scheduleNavRail(); saveSession(); };   // 清屏同时清便签(高亮的 mark 随 pane 一起没了)+ 收起导航轨
 $('input').addEventListener('keydown', (e) => {
   const pop = $('slash-pop');
   const popOpen = !pop.classList.contains('hidden');
@@ -2260,7 +2361,7 @@ function showNudge(key, text, actLabel, act) {
   nudged[key] = true;
   let bar = document.getElementById('nudge-bar');
   if (!bar) { bar = document.createElement('div'); bar.id = 'nudge-bar'; $('panes').appendChild(bar); }
-  bar.innerHTML = '💡 ' + escapeHtml(text) + ' <span class="nb-act">' + escapeHtml(actLabel) + '</span><span class="nb-x">✕</span>';
+  bar.innerHTML = '<span class="nb-msg">💡 ' + escapeHtml(text) + '</span><span class="nb-act">' + escapeHtml(actLabel) + '</span><span class="nb-x">✕</span>';
   bar.classList.add('show');
   bar.querySelector('.nb-act').onclick = () => { bar.classList.remove('show'); act(); };
   bar.querySelector('.nb-x').onclick = () => bar.classList.remove('show');
@@ -2419,11 +2520,19 @@ function newTab() {
   setStatus('新建标签页(双击标签可改名)');
 }
 function closeTab(convId) {
-  if (Object.keys(tabs).length <= 1) return;
+  const real = Object.values(tabs).filter((t) => !t.isFork);
+  if (real.length <= 1) return;
   const t = tabs[convId];
-  if (t) { t.pane.remove(); delete tabs[convId]; }
+  if (!t || t.isFork) return;
+  cancelErrorFinish(convId);
+  closedConvs.add(convId);
+  disposeForksWithin(t.pane);
+  t.pane.remove(); delete tabs[convId];
   toMatlab('close_conv', { convId });   // 显式带被关 convId(覆盖默认 activeConv)
-  if (activeConv === convId) switchTab(Object.keys(tabs)[0]);
+  if (activeConv === convId) {
+    const next = Object.values(tabs).find((x) => !x.isFork);
+    if (next) switchTab(next.convId);
+  }
   else renderTabs();
   saveSession();
 }

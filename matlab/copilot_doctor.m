@@ -134,14 +134,22 @@ end
 end
 
 function r = checkPort()
-r.name = '端口 8765 (sidecar 通信端口)';
-try
-    srv = tcpserver('127.0.0.1', 8765);
-    delete(srv);
+r.name = '端口 8765/8766 (sidecar 通信/权限端口)';
+ports = [8765 8766];
+busy = [];
+for p = ports
+    try
+        srv = tcpserver('127.0.0.1', p);
+        delete(srv);
+    catch
+        busy(end+1) = p; %#ok<AGROW>
+    end
+end
+if isempty(busy)
     r = pass(r, '端口空闲');
-catch
-    r = fail(r, '端口已被占用', ...
-        '先关闭占用 8765 的进程，或修改 sidecar/src/server.js 里的 PORT 常量。');
+else
+    r = fail(r, ['端口已被占用: ' char(strjoin(string(busy), ', '))], ...
+        '先关闭占用进程，或用 copilot(Port=9000, ControlPort=9001) 指定一组空闲端口。');
 end
 end
 

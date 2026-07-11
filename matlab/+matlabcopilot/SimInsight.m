@@ -19,12 +19,19 @@ classdef SimInsight
             fig = figure('Visible', 'off', 'Position', [0 0 720 380], 'Color', 'w');
             cleanupObj = onCleanup(@() close(fig)); %#ok<NASGU>
             ax = axes(fig); hold(ax, 'on'); grid(ax, 'on');
+            plotted = 0;
             for k = 1:n
                 s = run.getSignalByIndex(k);
                 [st, t, y] = matlabcopilot.SimInsight.signalStats(s);
                 if isempty(st); continue; end
                 sigs{end+1} = st; %#ok<AGROW>
-                if k <= 6 && ~isempty(t); plot(ax, t, y, 'DisplayName', char(st.name)); end
+                if plotted < 6 && ~isempty(t)
+                    plot(ax, t, y, 'DisplayName', char(st.name));
+                    plotted = plotted + 1;
+                end
+            end
+            if isempty(sigs)
+                error('最近的 run(%s)里没有可分析的标量数值信号。', char(run.Name));
             end
             legend(ax, 'Location', 'best', 'Interpreter', 'none');
             xlabel(ax, 't (s)');
@@ -38,13 +45,23 @@ classdef SimInsight
             try
                 v = s.Values;
                 if isstruct(v); return; end          % 总线等复合信号 v1 跳过
-                y = double(v.Data(:, 1)); t = double(v.Time(:));
+                data = double(v.Data); t = double(v.Time(:));
+                % 多通道向量不能静默只取第一列，否则指标会冒充整个信号。
+                if numel(data) ~= numel(t); return; end
+                y = data(:);
+                keep = isfinite(t) & isfinite(y);
+                t = t(keep); y = y(keep);
                 if isempty(y); return; end
                 fin = y(end);
                 pk = max(abs(y));
                 ovs = 0;
                 if abs(fin) > 1e-9
-                    ovs = round((max(y) - fin) / abs(fin) * 100, 1);   % 相对终值的超调 %
+                    if fin > 0
+                        excess = max(y) - fin;
+                    else
+                        excess = fin - min(y);
+                    end
+                    ovs = round(max(0, excess / abs(fin) * 100), 1);
                 end
                 % 2% 稳定时间:最后一次越出 ±2%|终值| 带的时刻
                 settle = 0;
@@ -67,7 +84,11 @@ classdef SimInsight
             f = [tempname '.png'];
             try
                 print(fig, '-dpng', '-r84', f);
-                fid = fopen(f, 'rb'); b = fread(fid, inf, '*uint8'); fclose(fid);
+                fid = fopen(f, 'rb');
+                if fid < 0; error('matlabcopilot:SimInsight:OpenFailed', '无法读取临时曲线图。'); end
+                cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
+                b = fread(fid, inf, '*uint8');
+                clear cleaner
                 if numel(b) > 0 && numel(b) <= 400 * 1024
                     url = "data:image/png;base64," + string(matlab.net.base64encode(b));
                 end

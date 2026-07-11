@@ -7,6 +7,43 @@
 
 ---
 
+## [0.10.0] — 2026-07-11
+
+本版本完成半成品功能收口，重点统一多会话配置、MATLAB 本地操作权限和资源生命周期，并修复会话启动/关闭时的异步竞态。
+
+### 新增（Added）
+
+- **每会话完整配置**：`user_message` 与 `slash_command` 可携带完整 `config`；新标签、Fork 和隐藏体检会话在 adapter 创建前原子继承 UI 配置。
+- **MATLAB 本地权限控制器**：版本对比、需求锚定、经验库保存、测试、覆盖率、参数扫描和 SWDD 等副作用操作统一显示确认卡并写审计。
+- **本地权限审计状态机**：操作先记录 `pending`，执行、拒绝或失败后更新为 `ok / failed`。
+- **权限 MCP 独立测试**：覆盖 JSON-RPC 初始化、`tools/list`、`tools/call`、请求转发、审批响应和异常输入。
+- **发布证据**：新增真实 MATLAB R2025b 内嵌截图，以及运行时架构、消息流、权限和会话生命周期静态图。
+
+### 变更（Changed）
+
+- Sidecar 会话增加 `ready / generation / dispatchEpoch / closed` 屏障，配置重建期间等待新 adapter，Stop 可取消未派发消息。
+- `Panel` 使用 `ConfigByConv` 保存完整 per-conv 配置；插入、搜索与本地权限 pending 都按发起会话隔离。
+- 附件改为一次性派发语义：仅成功派发后消费，Stop、关闭会话和销毁面板时清理临时图片。
+- Plan 模式从只约束后端/MCP 扩展到 MATLAB 本地确定性副作用操作，形成双层强制只读。
+- README、INSTALL、开发计划、功能清单、目录结构和全部发布图与当前代码同步。
+
+### 修复（Fixed）
+
+- 修复新会话先按默认配置启动、随后才收到 UI 配置造成的后端/模式短暂错配。
+- 修复配置重建、Stop 或关闭期间待派发消息仍可能落入旧 adapter 的竞态。
+- 修复关闭标签或 Fork 后旧 adapter 迟到事件重新写入 UI 的问题。
+- 修复一次性附件重复注入、临时粘贴图片长期残留和跨回合误复用。
+- 修复 Plan 模式可通过 MATLAB 本地确认卡执行写入/仿真/测试的权限缺口。
+- 加固 Git ref、项目路径、规则/需求/经验文件、参数扫描值、Stateflow 与 SDI 数据输入边界。
+- 修复浅色主题中权限卡次级文字对比度不足，并补齐全局 `--text2` 颜色变量。
+
+### 验证（Verified）
+
+- Sidecar：**65 个测试，11 个测试文件，全部通过**。
+- UI：两段内联 JavaScript 语法检查与浏览器运行时注入检查通过。
+- MATLAB：R2025b `checkcode`、关键类加载、真实 `Panel` 启动和两张 `exportapp` 截图通过。
+- 发布包：`MATLAB-Copilot.mltbx` 使用 `ToolboxVersion=0.10.0` 构建并生成 SHA-256。
+
 ## [0.9.0] — 2026-07-07
 
 面向团队赋能的大版本:新增 **14 项能力**,核心思路是「**确定性优先**」——检查/对比/统计由本地代码保证准确可复现(零 token、秒回),AI 只做它擅长的解释、归因与建议。
@@ -118,6 +155,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.10.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.0
 [0.9.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.9.0
 [0.7.5]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.7.5
 [0.7.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.7.0

@@ -36,21 +36,29 @@ export class Server {
     let c = this.convs.get(convId);
     if (c) return c;
     c = { convId, config: { ...this.config, ...(config || {}) }, adapter: null,
-          compacting: false, compactBuf: '', seed: null };
+          compacting: false, compactBuf: '', seed: null, ready: Promise.resolve(),
+          generation: 0, dispatchEpoch: 0, closed: false };
     c.adapter = this.makeAdapter({ ...c.config, convId });
-    this.wireConv(c);
-    Promise.resolve(c.adapter.start()).catch((e) =>
-      this.toClient({ type: OutMsg.ERROR, convId, message: '后端启动失败: ' + (e?.message || e) }));
+    this.wireConv(c, c.adapter);
     this.convs.set(convId, c);
+    c.ready = Promise.resolve(c.adapter.start()).catch((e) =>
+      this.toClient({ type: OutMsg.ERROR, convId, message: '后端启动失败: ' + (e?.message || e) }));
     return c;
   }
 
-  getConv(convId) { return this.convs.get(convId || 'main') || this.ensureConv(convId); }
+  getConv(convId, initialConfig) {
+    return this.convs.get(convId || 'main') || this.ensureConv(convId, initialConfig);
+  }
 
-  wireConv(c) {
-    c.adapter.on('event', (uiMsg) => this.onAdapterEvent(c, uiMsg));
-    c.adapter.on('error', (err) =>
-      this.toClient({ type: OutMsg.ERROR, convId: c.convId, message: String(err?.message || err) }));
+  wireConv(c, adapter) {
+    adapter.on('event', (uiMsg) => {
+      if (!c.closed && c.adapter === adapter) this.onAdapterEvent(c, uiMsg);
+    });
+    adapter.on('error', (err) => {
+      if (!c.closed && c.adapter === adapter) {
+        this.toClient({ type: OutMsg.ERROR, convId: c.convId, message: String(err?.message || err) });
+      }
+    });
   }
 
   // 操作审计:破坏性工具调用 → 记一条(含改了什么、属于哪个会话),落 JSONL + 推 UI「变更记录」。
@@ -71,7 +79,7 @@ export class Server {
         writeAuditLine(entry);
         this.toClient({ type: OutMsg.AUDIT, convId: c.convId, entry });
       } else if (uiMsg.type === OutMsg.TOOL_RESULT) {
-        const e = this.audit.find((a) => a.id === uiMsg.id);
+        const e = this.audit.find((a) => a.id === uiMsg.id && a.convId === c.convId);
         if (e) {
           e.status = uiMsg.ok === false ? 'failed' : 'ok';
           e.resultTime = new Date().toISOString();
@@ -102,25 +110,61 @@ export class Server {
   }
 
   // 运行时切换某会话的后端/模型/模式/思考强度:停旧、按新配置重建、重连事件。
-  async applyConfig(convId, partial) {
+  applyConfig(convId, partial) {
+    convId = convId || 'main';
+    if (!this.convs.has(convId)) {
+      // 新标签第一次动作就是切模式/后端时，直接按完整 UI 配置创建；不要先造默认
+      // adapter 再异步重建，否则紧随其后的首条消息可能落到默认后端。
+      const c = this.ensureConv(convId, partial);
+      this.toClient({ type: OutMsg.CONFIG_CHANGED, convId: c.convId, config: c.config });
+      return c.ready;
+    }
     const c = this.getConv(convId);
     c.config = { ...c.config, ...(partial || {}) };
     // 切后端会换掉 adapter,正在进行的 /compact 那次 RESULT 不会再来 → 清压缩中间态,避免会话永久卡在 compacting。
     c.compacting = false; c.compactBuf = '';
-    try { await c.adapter?.stop(); } catch {}
-    c.adapter = this.makeAdapter({ ...c.config, convId: c.convId });
-    this.wireConv(c);
-    try { await c.adapter.start(); } catch (e) {
-      this.toClient({ type: OutMsg.ERROR, convId: c.convId, message: '切换后端失败: ' + (e?.message || e) });
-    }
-    this.toClient({ type: OutMsg.CONFIG_CHANGED, convId: c.convId, config: c.config });
+    const generation = ++c.generation;
+    const previousReady = c.ready || Promise.resolve();
+    c.ready = Promise.resolve(previousReady).then(async () => {
+      if (c.closed || c.generation !== generation) return;
+      const old = c.adapter;
+      try { await old?.stop(); } catch {}
+      if (c.closed || c.generation !== generation) return;
+      const next = this.makeAdapter({ ...c.config, convId: c.convId });
+      c.adapter = next;
+      this.wireConv(c, next);
+      try { await next.start(); } catch (e) {
+        this.toClient({ type: OutMsg.ERROR, convId: c.convId, message: '切换后端失败: ' + (e?.message || e) });
+      }
+      if (c.closed || c.generation !== generation) {
+        try { await next.stop(); } catch {}
+        return;
+      }
+      this.toClient({ type: OutMsg.CONFIG_CHANGED, convId: c.convId, config: c.config });
+    });
+    return c.ready;
   }
 
   async closeConv(convId) {
     const c = this.convs.get(convId);
-    if (!c || convId === 'main') return;   // main 不关
-    try { await c.adapter?.stop(); } catch {}
-    this.convs.delete(convId);
+    this.denyPendingPermissions((p) => p.convId === convId, '会话已关闭，操作已自动拒绝');
+    if (c) {
+      c.closed = true;
+      c.generation += 1;
+      c.dispatchEpoch += 1;
+      this.convs.delete(convId);
+      try { await c.ready; } catch {}
+      try { await c.adapter?.stop(); } catch {}
+    }
+  }
+
+  denyPendingPermissions(predicate, message) {
+    for (const [key, p] of this.pendingPermissions) {
+      if (!predicate(p)) continue;
+      if (p.timer) clearTimeout(p.timer);
+      this.pendingPermissions.delete(key);
+      this.controlReply(p.sock, p.id, false, message);
+    }
   }
 
   async start() {
@@ -139,7 +183,12 @@ export class Server {
   }
 
   async stop() {
-    for (const c of this.convs.values()) { try { await c.adapter.stop(); } catch {} }
+    for (const c of this.convs.values()) {
+      c.closed = true; c.generation += 1;
+      c.dispatchEpoch += 1;
+      try { await c.ready; } catch {}
+      try { await c.adapter.stop(); } catch {}
+    }
     this._clientServer?.close();
     this._controlServer?.close();
   }
@@ -150,7 +199,12 @@ export class Server {
     this.client = sock;
     const feed = createLineBuffer((line) => this.handleClientLine(line));
     sock.on('data', feed);
-    sock.on('close', () => { if (this.client === sock) this.client = null; });
+    sock.on('close', () => {
+      if (this.client === sock) {
+        this.client = null;
+        this.denyPendingPermissions(() => true, '面板已断开，操作已自动拒绝');
+      }
+    });
     sock.on('error', () => {});
     this.toClient({ type: OutMsg.READY });
   }
@@ -163,17 +217,39 @@ export class Server {
         this.toClient({ type: OutMsg.PONG });
         break;
       case InMsg.USER_MESSAGE: {
-        const c = this.getConv(msg.convId);
+        // 新标签/Fork 的首条消息携带 UI 中继承的完整配置；创建 adapter 前原子合并，
+        // 避免先 SET_CONFIG 再 USER_MESSAGE 时异步重建尚未完成而落到默认后端。
+        const c = this.getConv(msg.convId, msg.config);
         // insert_at_cursor 模式:用「只产出代码」的系统提示覆盖本轮。
         const systemPrompt = msg.intent === 'insert_at_cursor' ? INSERT_SYSTEM_PROMPT : undefined;
         let context = msg.context;
+        if (msg.attachments) {
+          const incoming = Array.isArray(msg.attachments) ? msg.attachments : [msg.attachments];
+          const existing = Array.isArray(context?.attachments)
+            ? context.attachments
+            : (context?.attachments ? [context.attachments] : []);
+          context = { ...(context || {}), attachments: [...existing, ...incoming] };
+        }
         if (c.seed) { context = { ...(context || {}), compactSummary: c.seed }; c.seed = null; }
-        c.adapter.sendMessage({ text: msg.text, context, systemPrompt });
+        const ready = c.ready || Promise.resolve();
+        const dispatchEpoch = c.dispatchEpoch;
+        Promise.resolve(ready)
+          .then(() => {
+            if (!c.closed && c.dispatchEpoch === dispatchEpoch) {
+              return c.adapter.sendMessage({ text: msg.text, context, systemPrompt });
+            }
+            return undefined;
+          })
+          .catch((e) => this.toClient({ type: OutMsg.ERROR, convId: c.convId,
+            message: '发送消息失败: ' + (e?.message || e) }));
         break;
       }
-      case InMsg.INTERRUPT:
-        this.getConv(msg.convId).adapter.interrupt();
+      case InMsg.INTERRUPT: {
+        const c = this.getConv(msg.convId);
+        c.dispatchEpoch += 1; // 取消仍在等待配置重建完成的消息/斜杠命令
+        Promise.resolve(c.ready).then(() => { if (!c.closed) c.adapter.interrupt(); });
         break;
+      }
       case InMsg.PERMISSION_RESPONSE:
         this.resolvePermission(msg.convId, msg.id, msg.approved === true);
         break;
@@ -195,27 +271,33 @@ export class Server {
   }
 
   handleSlash(msg) {
-    const c = this.getConv(msg.convId);
-    const name = msg.name || '';
-    if (name === '/compact') {
-      // 真压缩:生成摘要(用户可见)→ 本轮结束后重置会话 → 摘要播种下一轮(见 onAdapterEvent)。
-      c.compacting = true;
-      c.compactBuf = '';
-      c.adapter.sendMessage({
-        text: '请用要点总结我们到目前为止的对话:关键决策、约束、已完成、待办。控制在 300 字内。',
-        context: msg.context,
-      });
-      return;
-    }
-    const cmd = resolveSlashCommand(name, this.cwd);
-    if (cmd && cmd.kind === 'custom') {
-      // 约定:命令体含 $ARGUMENTS 则替换为用户参数,否则把参数附在末尾。
-      let text = cmd.body;
-      if (/\$ARGUMENTS/.test(text)) text = text.replace(/\$ARGUMENTS/g, msg.args || '');
-      else if (msg.args) text += '\n\n' + msg.args;
-      c.adapter.sendMessage({ text, context: msg.context });
-    }
-    // 其余内置命令(/model /mode /clear 等)由 UI 端直接处理(set_config / 本地动作)。
+    const c = this.getConv(msg.convId, msg.config);
+    const ready = c.ready || Promise.resolve();
+    const dispatchEpoch = c.dispatchEpoch;
+    Promise.resolve(ready).then(() => {
+      if (c.closed || c.dispatchEpoch !== dispatchEpoch) return;
+      const name = msg.name || '';
+      if (name === '/compact') {
+        // 真压缩:生成摘要(用户可见)→ 本轮结束后重置会话 → 摘要播种下一轮(见 onAdapterEvent)。
+        c.compacting = true;
+        c.compactBuf = '';
+        return c.adapter.sendMessage({
+          text: '请用要点总结我们到目前为止的对话:关键决策、约束、已完成、待办。控制在 300 字内。',
+          context: msg.context,
+        });
+      }
+      const cmd = resolveSlashCommand(name, this.cwd);
+      if (cmd && cmd.kind === 'custom') {
+        // 约定:命令体含 $ARGUMENTS 则替换为用户参数,否则把参数附在末尾。
+        let text = cmd.body;
+        if (/\$ARGUMENTS/.test(text)) text = text.replace(/\$ARGUMENTS/g, msg.args || '');
+        else if (msg.args) text += '\n\n' + msg.args;
+        return c.adapter.sendMessage({ text, context: msg.context });
+      }
+      // 其余内置命令(/model /mode /clear 等)由 UI 端直接处理(set_config / 本地动作)。
+      return undefined;
+    }).catch((e) => this.toClient({ type: OutMsg.ERROR, convId: c.convId,
+      message: '斜杠命令失败: ' + (e?.message || e) }));
   }
 
   toClient(obj) {
@@ -357,11 +439,36 @@ function summarizeAction(input) {
   const parts = [];
   for (const k of keys) {
     const v = input[k];
-    if (v != null && typeof v !== 'object') parts.push(`${k}=${String(v).replace(/\s+/g, ' ').slice(0, 80)}`);
+    if (v != null && typeof v !== 'object') parts.push(`${k}=${redactAuditValue(k, v)}`);
   }
   if (parts.length) return parts.join(' · ');
-  const s = JSON.stringify(input);
+  const s = JSON.stringify(redactAuditObject(input));
   return s.length > 140 ? s.slice(0, 140) + '…' : s;
+}
+
+const AUDIT_CODE_FIELDS = new Set(['code', 'command', 'matlab_code', 'matlabCode', 'expression', 'script', 'input']);
+const SENSITIVE_KEY_RE = /(api[_-]?key|token|secret|authorization|auth|cookie|password|passwd|pwd|credential|app[_-]?secret)/i;
+const SENSITIVE_VALUE_RE = /\b(sk-[A-Za-z0-9_-]{12,}|sk-proj-[A-Za-z0-9_-]{12,}|Bearer\s+[A-Za-z0-9._~+/-]+=*|Authorization\s*:\s*\S+)\b/gi;
+
+function redactAuditValue(key, value) {
+  const s = String(value).replace(/\s+/g, ' ');
+  if (AUDIT_CODE_FIELDS.has(key)) return `[已脱敏:${key},${s.length} chars]`;
+  if (SENSITIVE_KEY_RE.test(key)) return '[已脱敏]';
+  const redacted = s.replace(SENSITIVE_VALUE_RE, '[已脱敏]');
+  return redacted.slice(0, 80);
+}
+
+function redactAuditObject(value) {
+  if (Array.isArray(value)) return value.map(redactAuditObject);
+  if (!value || typeof value !== 'object') return value;
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (SENSITIVE_KEY_RE.test(k)) out[k] = '[已脱敏]';
+    else if (AUDIT_CODE_FIELDS.has(k) && typeof v === 'string') out[k] = `[已脱敏:${k},${v.length} chars]`;
+    else if (typeof v === 'string') out[k] = v.replace(SENSITIVE_VALUE_RE, '[已脱敏]');
+    else out[k] = redactAuditObject(v);
+  }
+  return out;
 }
 
 // 审计落盘:按天追加 JSONL 到 ~/.matlab-copilot/audit-YYYY-MM-DD.jsonl(持久留痕、可追溯)。

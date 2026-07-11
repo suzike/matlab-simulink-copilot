@@ -9,16 +9,24 @@ classdef Panel < handle
         Bridge        matlabcopilot.Bridge
         RootDir       string   % 仓库根目录
         PendingInsert logical = false  % 是否处于「生成到光标」模式
+        PendingInsertConv string = "" % 发起插入请求的会话，防止吞掉其他标签页回包
+        PendingInsertText string = ""  % 插入模式下累积助手文本(Codex result.text 为空时兜底)
         PendingDoc                     % 暂存的活动文档
         PendingSel                     % 暂存的光标 Selection
         Attachments cell = {}          % 本地文件上下文:{struct('name','content')}
         PendingFind logical = false    % 「查找模块」:等 agent 返回路径后原生高亮
+        PendingFindConv string = ""   % 发起查找请求的会话
+        PendingFindModel string = ""  % 发起查找时的模型，避免切换模型后误判工具路径
         PendingFindText string = ""    % 累积本轮助手文本(从中解析 <<HILITE:>> 标记)
         PendingFindHits string = strings(0,1)  % 嗅探到的、属于当前模型的 block 路径(兜底高亮)
         Diag                           % matlabcopilot.Diagnostics:结构化诊断采集
         ActiveConv string = "main"     % 当前活动标签页 convId(随每个 UI 事件更新)
         DiffPend                       % containers.Map:model_edit 前快照(key=convId|toolId)
+        LocalPermPend                  % containers.Map:本地确定性写/运行动作的待确认回调
+        TempFilesByConv                % containers.Map:已发送、待本轮结束后删除的临时附件
+        ConfigByConv                   % containers.Map:每个会话的完整后端配置，约束本地动作并初始化 sidecar
         NightTimer                     % 夜间批量任务定时器(timer;空=未排程)
+        NightConv string = ""         % 定时器归属会话，关闭标签页时同步撤销
     end
 
     methods
@@ -36,6 +44,9 @@ classdef Panel < handle
             obj.Figure.UserData = obj;  % 把面板存到图窗,供 Simulink 右键菜单按窗口查找(不留 persistent)
             obj.Diag = matlabcopilot.Diagnostics();  % 常驻诊断采集(前向捕获后续模型操作的诊断)
             obj.DiffPend = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.LocalPermPend = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.TempFilesByConv = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.ConfigByConv = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
             sidecarDir = fullfile(obj.RootDir, "sidecar");
             obj.Bridge = matlabcopilot.Bridge(sidecarDir, opts.Cwd, ...
@@ -65,6 +76,7 @@ classdef Panel < handle
             try
                 if strcmpi(string(evt.Key), "escape")
                     cc = char(obj.ActiveConv);
+                    obj.clearPendingModes(cc);
                     obj.Bridge.send(struct('type', "interrupt", 'convId', cc));
                     obj.pushToUi(struct('type', "interrupted", 'convId', cc));
                 end
@@ -100,6 +112,7 @@ classdef Panel < handle
             data = evt.HTMLEventData;
             % 跟踪当前活动标签页(UI 每个事件都带 convId),供转发后端消息时路由。
             obj.ActiveConv = string(getfieldor(data, 'convId', obj.ActiveConv));
+            obj.rememberConvConfig(obj.ActiveConv, getfieldor(data, 'config', struct()));
             try
             switch name
                 case "ui_ready"
@@ -107,14 +120,26 @@ classdef Panel < handle
                 case "user_message"
                     obj.handleUserMessage(data);
                 case "interrupt"
+                    obj.clearPendingModes(obj.ActiveConv);
                     obj.Bridge.send(struct('type', "interrupt", 'convId', char(obj.ActiveConv)));
                 case "permission_response"
+                    permId = string(getfieldor(data, 'id', ""));
+                    approved = logical(getfieldor(data, 'approved', false));
+                    if obj.resolveLocalPermission(permId, approved)
+                        return;
+                    end
                     obj.Bridge.send(struct('type', "permission_response", ...
-                        'id', data.id, 'approved', logical(data.approved), ...
+                        'id', permId, 'approved', approved, ...
                         'convId', char(getfieldor(data, 'convId', obj.ActiveConv))));
                 case "close_conv"
+                    closingConv = char(getfieldor(data, 'convId', obj.ActiveConv));
+                    obj.clearPendingModes(closingConv);
+                    if obj.NightConv == string(closingConv); obj.cancelNight(false); end
+                    obj.clearLocalPermissions(closingConv);
+                    obj.cleanupTempFiles(closingConv);
+                    if ~isempty(obj.ConfigByConv) && isKey(obj.ConfigByConv, closingConv); remove(obj.ConfigByConv, closingConv); end
                     obj.Bridge.send(struct('type', "close_conv", ...
-                        'convId', char(getfieldor(data, 'convId', obj.ActiveConv))));
+                        'convId', closingConv));
                 case "diagnose_error"
                     obj.handleDiagnose();
                 case "find_block"
@@ -152,11 +177,7 @@ classdef Panel < handle
                 case "swdd_gen"
                     obj.handleSwdd();
                 case "kb_save"
-                    ok = matlabcopilot.KnowledgeBase.save(obj.Bridge.Cwd, ...
-                        getfieldor(data, 'q', ""), getfieldor(data, 'a', ""));
-                    kbTxt = "存经验失败";
-                    if ok; kbTxt = "📌 已存入团队经验库(.copilot_kb/)"; end
-                    obj.pushToUi(struct('type', "status", 'convId', char(obj.ActiveConv), 'text', kbTxt));
+                    obj.handleKbSave(data);
                 case "self_heal"
                     obj.handleSelfHeal();
                 case "capture_model"
@@ -185,17 +206,19 @@ classdef Panel < handle
                         'name', getfieldor(data, 'name', ""), ...
                         'args', getfieldor(data, 'args', ""), ...
                         'convId', char(obj.ActiveConv), ...
+                        'config', getfieldor(data, 'config', struct()), ...
                         'context', matlabcopilot.Context.snapshot()));
                 case "attach_file"
                     obj.handleAttachFile();
                 case "attach_image"
                     obj.handleAttachImage(data);
                 case "clear_attachments"
-                    obj.Attachments = {};
+                    obj.clearPendingAttachments();
                     obj.pushToUi(struct('type', "attachments", 'files', {{}}));
                 case "remove_attachment"
                     idx = double(getfieldor(data, 'index', -1)) + 1; % JS 0-based → MATLAB 1-based
                     if idx >= 1 && idx <= numel(obj.Attachments)
+                        obj.deleteTempAttachment(obj.Attachments{idx});
                         obj.Attachments(idx) = [];
                     end
                     obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
@@ -203,9 +226,9 @@ classdef Panel < handle
             end
             catch err
                 % 任何未捕获的处理错误都在 UI 里显示并解除 busy(error 类型在 JS 里会调 setBusy(false))。
-                % 复位 pending 标志:否则 send 抛错后残留的 PendingFind/PendingInsert 会吞掉后续正常回包,卡死消息路由。
-                obj.PendingFind = false;
-                obj.PendingInsert = false;
+                % 只回滚本事件创建的专用状态；无关标签页/附件事件报错不得取消别处在途操作。
+                if name == "find_block"; obj.clearPendingFind(obj.ActiveConv); end
+                if name == "ask_at_cursor"; obj.clearPendingInsert(obj.ActiveConv); end
                 obj.pushToUi(struct('type', "error", 'convId', char(obj.ActiveConv), ...
                     'message', "操作失败 [" + name + "]: " + string(err.message)));
             end
@@ -222,7 +245,7 @@ classdef Panel < handle
             [~, ~, ext] = fileparts(f);
             if any(strcmpi(ext, {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp'}))
                 obj.Attachments{end+1} = struct('name', string(f), 'content', "", ...
-                    'path', string(full), 'isImage', true);
+                    'path', string(full), 'isImage', true, 'isTemp', false);
             else
                 content = "";
                 try
@@ -235,13 +258,14 @@ classdef Panel < handle
                     content = "(无法读取为文本)";
                 end
                 obj.Attachments{end+1} = struct('name', string(f), 'content', content, ...
-                    'path', "", 'isImage', false);
+                    'path', "", 'isImage', false, 'isTemp', false);
             end
             obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
         end
 
         function handleAttachImage(obj, data)
             % 接收 UI 粘贴的图片(base64 data URL),写临时 PNG,作图片附件(走视觉)。
+            tmp = "";
             try
                 dataUrl = string(getfieldor(data, 'dataUrl', ""));
                 if strlength(dataUrl) == 0; return; end
@@ -251,12 +275,15 @@ classdef Panel < handle
                 tmp = string(tempname) + ".png";
                 fid = fopen(tmp, 'w');
                 if fid < 0; return; end
-                fwrite(fid, bytes, 'uint8'); fclose(fid);
+                cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
+                fwrite(fid, bytes, 'uint8');
+                clear cleaner
                 name = string(getfieldor(data, 'name', "粘贴图片.png"));
                 obj.Attachments{end+1} = struct('name', name, 'content', "", ...
-                    'path', tmp, 'isImage', true);
+                    'path', tmp, 'isImage', true, 'isTemp', true);
                 obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
             catch
+                if strlength(tmp) > 0 && isfile(tmp); try, delete(tmp); catch, end; end
             end
         end
 
@@ -272,8 +299,214 @@ classdef Panel < handle
             end
         end
 
+        function consumeAttachments(obj, convId)
+            % 已发送的临时文件保留到该会话本轮结束，确保后端有时间读取。
+            if isempty(obj.Attachments); return; end
+            key = char(string(convId));
+            files = {};
+            if ~isempty(obj.TempFilesByConv) && isKey(obj.TempFilesByConv, key)
+                files = obj.TempFilesByConv(key);
+            end
+            for i = 1:numel(obj.Attachments)
+                a = obj.Attachments{i};
+                if isfield(a, 'isTemp') && logical(a.isTemp) && strlength(string(a.path)) > 0
+                    files{end+1} = char(string(a.path)); %#ok<AGROW>
+                end
+            end
+            if ~isempty(files); obj.TempFilesByConv(key) = unique(files, 'stable'); end
+            obj.Attachments = {};
+            obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+        end
+
+        function clearPendingAttachments(obj)
+            for i = 1:numel(obj.Attachments); obj.deleteTempAttachment(obj.Attachments{i}); end
+            obj.Attachments = {};
+        end
+
+        function deleteTempAttachment(~, a)
+            try
+                if isfield(a, 'isTemp') && logical(a.isTemp) && isfile(string(a.path))
+                    delete(string(a.path));
+                end
+            catch
+            end
+        end
+
+        function cleanupTempFiles(obj, convId)
+            if isempty(obj.TempFilesByConv) || ~isa(obj.TempFilesByConv, 'containers.Map'); return; end
+            target = string(convId);
+            ks = keys(obj.TempFilesByConv);
+            for i = 1:numel(ks)
+                if strlength(target) > 0 && string(ks{i}) ~= target; continue; end
+                files = obj.TempFilesByConv(ks{i});
+                remove(obj.TempFilesByConv, ks{i});
+                for k = 1:numel(files)
+                    try, if isfile(files{k}); delete(files{k}); end, catch, end
+                end
+            end
+        end
+
+        function cleanupTempForMessage(obj, msg)
+            if ~isfield(msg, 'type'); return; end
+            t = string(msg.type);
+            % 后端失败路径按协议仍会补 RESULT；不对任意 ERROR 清理，避免无关本地错误
+            % 在 agent 尚未读取图片时误删附件。
+            terminal = t == "result";
+            if t == "status" && isfield(msg, 'text'); terminal = string(msg.text) == "interrupted"; end
+            if terminal
+                cc = string(getfieldor(msg, 'convId', obj.ActiveConv));
+                obj.cleanupTempFiles(cc);
+            end
+        end
+
+        function rememberConvConfig(obj, convId, cfg)
+            if ~isstruct(cfg) || isempty(fieldnames(cfg)); return; end
+            key = char(string(convId));
+            merged = struct();
+            if ~isempty(obj.ConfigByConv) && isKey(obj.ConfigByConv, key); merged = obj.ConfigByConv(key); end
+            names = fieldnames(cfg);
+            for i = 1:numel(names); merged.(names{i}) = cfg.(names{i}); end
+            obj.ConfigByConv(key) = merged;
+        end
+
+        function cfg = convConfig(obj, convId)
+            key = char(string(convId));
+            cfg = struct();
+            if ~isempty(obj.ConfigByConv) && isa(obj.ConfigByConv, 'containers.Map') && isKey(obj.ConfigByConv, key)
+                cfg = obj.ConfigByConv(key);
+            end
+        end
+
+        function mode = convMode(obj, convId)
+            mode = "ask";
+            cfg = obj.convConfig(convId);
+            if isfield(cfg, 'mode') && ~isempty(cfg.mode); mode = lower(string(cfg.mode)); end
+        end
+
+        function clearPendingInsert(obj, convId)
+            target = string(convId);
+            if ~obj.PendingInsert || (strlength(target) > 0 && obj.PendingInsertConv ~= target); return; end
+            obj.PendingInsert = false; obj.PendingInsertConv = ""; obj.PendingInsertText = "";
+            obj.PendingDoc = []; obj.PendingSel = [];
+        end
+
+        function clearPendingFind(obj, convId)
+            target = string(convId);
+            if ~obj.PendingFind || (strlength(target) > 0 && obj.PendingFindConv ~= target); return; end
+            obj.PendingFind = false; obj.PendingFindConv = ""; obj.PendingFindModel = "";
+            obj.PendingFindText = ""; obj.PendingFindHits = strings(0,1);
+        end
+
+        function clearPendingModes(obj, convId)
+            obj.clearPendingInsert(convId);
+            obj.clearPendingFind(convId);
+        end
+
+        function requestLocalPermission(obj, tool, input, diff, actionText, runFn, endsTurn)
+            % 本地确定性动作如果会写文件/运行仿真/运行测试,也复用同一张权限卡。
+            % sidecar 的权限通道只覆盖后端 MCP 工具;MATLAB 侧直接执行的动作需要在这里补门禁。
+            if nargin < 7; endsTurn = false; end
+            if isempty(obj.LocalPermPend) || ~isa(obj.LocalPermPend, 'containers.Map')
+                obj.LocalPermPend = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            end
+            id = "local-" + string(matlab.lang.internal.uuid());
+            cc = char(obj.ActiveConv);
+            if obj.convMode(cc) == "plan"
+                obj.emitLocalAudit(id, tool, actionText + "(Plan 模式已阻止)", "failed", cc);
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "Plan 模式为只读，本地写入或执行操作已阻止。"));
+                if endsTurn; obj.pushLocalResult(cc, false); end
+                return;
+            end
+            action = struct('tool', string(tool), 'input', input, ...
+                'action', string(actionText), 'run', runFn, ...
+                'convId', cc, 'endsTurn', logical(endsTurn));
+            obj.LocalPermPend(char(id)) = action;
+            obj.emitLocalAudit(id, tool, actionText, "pending", cc);
+            obj.pushToUi(struct('type', "permission_request", 'convId', cc, ...
+                'id', char(id), 'tool', char(tool), 'input', input, ...
+                'action', char(actionText), 'destructive', true, 'diff', diff));
+        end
+
+        function handled = resolveLocalPermission(obj, id, approved)
+            handled = false;
+            key = char(string(id));
+            if isempty(key) || isempty(obj.LocalPermPend) || ~isKey(obj.LocalPermPend, key)
+                return;
+            end
+            handled = true;
+            action = obj.LocalPermPend(key);
+            remove(obj.LocalPermPend, key);
+            cc = action.convId;
+            if ~approved
+                obj.emitLocalAudit(key, action.tool, action.action, "failed", cc);
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "已拒绝本地操作:" + action.action));
+                if action.endsTurn; obj.pushLocalResult(cc, false); end
+                return;
+            end
+            ok = false;
+            try
+                ok = logical(action.run());
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "本地操作失败: " + string(err.message)));
+                if action.endsTurn; obj.pushLocalResult(cc, false); end
+            end
+            if ok
+                obj.emitLocalAudit(key, action.tool, action.action, "ok", cc);
+            else
+                obj.emitLocalAudit(key, action.tool, action.action, "failed", cc);
+            end
+        end
+
+        function clearLocalPermissions(obj, convId)
+            % 关闭标签/面板时释放匿名回调对 Panel 的反向引用，并把 pending 审计收尾为 failed。
+            if isempty(obj.LocalPermPend) || ~isa(obj.LocalPermPend, 'containers.Map'); return; end
+            target = string(convId);
+            ks = keys(obj.LocalPermPend);
+            for i = 1:numel(ks)
+                action = obj.LocalPermPend(ks{i});
+                if strlength(target) > 0 && string(action.convId) ~= target; continue; end
+                remove(obj.LocalPermPend, ks{i});
+                obj.emitLocalAudit(ks{i}, action.tool, action.action + "(会话已关闭，未执行)", ...
+                    "failed", action.convId);
+            end
+        end
+
+        function pushLocalResult(obj, cc, ok)
+            obj.pushToUi(struct('type', "result", 'convId', char(cc), 'ok', logical(ok), ...
+                'id', '', 'text', '', 'costUsd', []));
+        end
+
+        function emitLocalAudit(obj, id, tool, actionText, status, cc)
+            entry = struct('id', char(id), ...
+                'time', char(string(datetime("now", 'Format', "yyyy-MM-dd'T'HH:mm:ss"))), ...
+                'tool', char(tool), 'action', char(actionText), ...
+                'status', char(status), 'backend', 'matlab-local', ...
+                'mode', 'local', 'convId', char(cc));
+            obj.writeLocalAuditLine(entry);
+            obj.pushToUi(struct('type', "audit", 'convId', char(cc), 'entry', entry));
+        end
+
+        function writeLocalAuditLine(~, entry)
+            try
+                home = getenv('USERPROFILE');
+                if isempty(home); home = getenv('HOME'); end
+                if isempty(home); return; end
+                dirPath = fullfile(home, '.matlab-copilot');
+                if ~isfolder(dirPath); mkdir(dirPath); end
+                day = char(string(datetime("now", 'Format', "yyyy-MM-dd")));
+                fid = fopen(fullfile(dirPath, ['audit-' day '.jsonl']), 'a', 'n', 'UTF-8');
+                if fid < 0; return; end
+                cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
+                fprintf(fid, '%s\n', char(jsonencode(entry)));
+            catch
+            end
+        end
+
         function handleUserMessage(obj, data)
             ctx = obj.contextWithAttachments();
+            cc = char(obj.ActiveConv);
             obj.pushContext();  % 顺手刷新顶栏,保证显示当前状态
             % 经验库自动召回:新消息与既有沉淀条目指纹匹配 → 附进上下文(命中才带)。
             try
@@ -290,14 +523,12 @@ classdef Panel < handle
             msg = struct('type', "user_message", ...
                 'id', getfieldor(data, 'id', char(matlab.lang.internal.uuid())), ...
                 'text', getfieldor(data, 'text', ""), ...
-                'convId', char(obj.ActiveConv), ...
+                'convId', cc, ...
+                'config', getfieldor(data, 'config', struct()), ...
                 'context', ctx);
             obj.Bridge.send(msg);
             % 附件随本条消息发出后清空(属于这条消息,避免后续每条都重复带)。
-            if ~isempty(obj.Attachments)
-                obj.Attachments = {};
-                obj.pushToUi(struct('type', "attachments", 'files', {{}}));
-            end
+            obj.consumeAttachments(cc);
         end
 
         function handleDiagnose(obj)
@@ -316,7 +547,8 @@ classdef Panel < handle
             ctx = matlabcopilot.Context.snapshot();
             text = obj.diagnosePrompt(items);
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
-                'id', char(matlab.lang.internal.uuid()), 'text', text, 'context', ctx));
+                'id', char(matlab.lang.internal.uuid()), 'text', text, ...
+                'config', obj.convConfig(cc), 'context', ctx));
         end
 
         function text = diagnosePrompt(obj, items) %#ok<INUSL>
@@ -342,7 +574,7 @@ classdef Panel < handle
             % 「任务流」:探测本机能力 → 让 agent 按自适应分阶段管线跑质量任务并汇总。
             model = matlabcopilot.Context.currentModel();
             if strlength(string(model)) == 0
-                obj.pushToUi(struct('type', "error", ...
+                obj.pushToUi(struct('type', "error", 'convId', char(obj.ActiveConv), ...
                     'message', "没有打开的 Simulink 模型,无法运行任务流。请先打开一个模型。"));
                 return;
             end
@@ -356,7 +588,8 @@ classdef Panel < handle
             text = matlabcopilot.Tasks.prompt(model, caps);
             ctx = matlabcopilot.Context.snapshot();
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
-                'id', char(matlab.lang.internal.uuid()), 'text', text, 'context', ctx));
+                'id', char(matlab.lang.internal.uuid()), 'text', text, ...
+                'config', obj.convConfig(cc), 'context', ctx));
         end
 
         function handleSelfHeal(obj)
@@ -378,9 +611,8 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'context', ctx, 'attachments', {obj.Attachments}));
-            obj.Attachments = {};
-            obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+            obj.consumeAttachments(cc);
         end
 
         function handleCaptureModel(obj)
@@ -388,7 +620,8 @@ classdef Panel < handle
             model = '';
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
             if isempty(model)
-                obj.pushToUi(struct('type', "status", 'text', '无打开的 Simulink 模型，请先打开一个模型。'));
+                obj.pushToUi(struct('type', "error", 'convId', char(obj.ActiveConv), ...
+                    'message', '无打开的 Simulink 模型，请先打开一个模型。'));
                 return;
             end
             try
@@ -400,9 +633,9 @@ classdef Panel < handle
                 end
                 % 直接作为路径型图片附件加入(与手动附件共用同一通道,发完即清)
                 obj.Attachments{end+1} = struct('name', string(model) + ".png", ...
-                    'content', "", 'path', tmpFile, 'isImage', true);
+                    'content', "", 'path', tmpFile, 'isImage', true, 'isTemp', true);
                 obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
-                ctx  = matlabcopilot.Context.snapshot();
+                ctx  = obj.contextWithAttachments();
                 cc   = char(obj.ActiveConv);
                 prompt = sprintf(['请先用 Read 工具查看附加的 Simulink 模型截图(%s.png),再系统分析:' ...
                     '①信号流与整体架构;②命名规范/未命名 block;' ...
@@ -410,12 +643,11 @@ classdef Panel < handle
                     '最后给出可直接执行的改进建议。'], model);
                 obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                     'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                    'context', ctx, 'attachments', {obj.Attachments}));
-                obj.Attachments = {};
-                obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+                    'config', obj.convConfig(cc), 'context', ctx));
+                obj.consumeAttachments(cc);
             catch err
                 % 用 error 类型让 UI 解除 busy(status 不会);并清掉可能已加入的陈旧截图附件。
-                obj.Attachments = {};
+                obj.clearPendingAttachments();
                 obj.pushToUi(struct('type', "attachments", 'files', {{}}));
                 obj.pushToUi(struct('type', "error", 'convId', char(obj.ActiveConv), ...
                     'message', '模型截图失败: ' + string(err.message)));
@@ -429,9 +661,16 @@ classdef Panel < handle
             cc  = char(obj.ActiveConv);
             model = char(matlabcopilot.Context.currentModel());
             if ~isempty(model)
-                [reqs, ~] = matlabcopilot.ReqTrace.loadRequirements(obj.Bridge.Cwd);
+                [reqs, reqSrc] = matlabcopilot.ReqTrace.loadRequirements(obj.Bridge.Cwd);
                 if ~isempty(reqs)
                     obj.pushToUi(matlabcopilot.ReqTrace.matrix(model, obj.Bridge.Cwd, cc));
+                    obj.pushToUi(struct('type', "result", 'convId', cc, 'ok', true, ...
+                        'id', '', 'text', '', 'costUsd', []));
+                    return;
+                end
+                if strlength(reqSrc) > 0
+                    obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                        'message', "需求文件存在但没有可用条目:" + reqSrc + "。请修复文件后重试。"));
                     return;
                 end
             end
@@ -452,6 +691,17 @@ classdef Panel < handle
                     'text', "请先在 Simulink 画布上选中要锚定的 block,再点锚定。"));
                 return;
             end
+            outFile = fullfile(char(obj.Bridge.Cwd), 'req_links.json');
+            input = struct('file', outFile, 'model', model, 'block', char(blk), ...
+                'reqId', char(reqId), 'unlink', doUnlink);
+            diff = struct('type', "file_write", 'file', outFile, 'exists', isfile(outFile));
+            verb = "锚定需求"; if doUnlink; verb = "解除需求锚定"; end
+            obj.requestLocalPermission("matlabcopilot__local__req_link", input, diff, ...
+                verb + ":" + matlabcopilot.ModelSearch.leafName(blk) + " ↔ " + reqId, ...
+                @() obj.runLocalReqLink(model, blk, reqId, doUnlink, cc), false);
+        end
+
+        function ok = runLocalReqLink(obj, model, blk, reqId, doUnlink, cc)
             ok = matlabcopilot.ReqTrace.linkBlock(obj.Bridge.Cwd, model, blk, reqId, doUnlink);
             if ok
                 verb = "已锚定";
@@ -464,6 +714,29 @@ classdef Panel < handle
             end
         end
 
+        function handleKbSave(obj, data)
+            cc = char(obj.ActiveConv);
+            q = string(getfieldor(data, 'q', ""));
+            a = string(getfieldor(data, 'a', ""));
+            if strlength(strtrim(a)) == 0
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "当前回答为空，未保存经验。"));
+                return;
+            end
+            indexFile = fullfile(char(obj.Bridge.Cwd), '.copilot_kb', 'index.json');
+            input = struct('file', indexFile, 'question', char(q));
+            diff = struct('type', "file_write", 'file', indexFile, 'exists', isfile(indexFile));
+            obj.requestLocalPermission("matlabcopilot__local__kb_save", input, diff, ...
+                "保存团队经验:" + extractBefore(q, min(strlength(q) + 1, 61)), ...
+                @() obj.runLocalKbSave(q, a, cc), false);
+        end
+
+        function ok = runLocalKbSave(obj, q, a, cc)
+            ok = matlabcopilot.KnowledgeBase.save(obj.Bridge.Cwd, q, a);
+            txt = "存经验失败；若 index.json 已损坏，请先修复后重试。";
+            if ok; txt = "📌 已存入团队经验库(.copilot_kb/)"; end
+            obj.pushToUi(struct('type', "status", 'convId', cc, 'text', txt));
+        end
+
         function aiRequirements(obj)
             % AI 反推路径(无需求文件时的兜底,仅辅助起草,非真实追溯)。
             ctx = matlabcopilot.Context.snapshot();
@@ -472,7 +745,11 @@ classdef Panel < handle
 
             % 可靠检测 Requirements Toolbox:只用 license,不用 exist('slreq.load','file')
             hasReqTB = false;
-            try, hasReqTB = logical(license('test', 'SL_Reqts_and_Test_Mgr')); catch, end
+            try
+                hasReqTB = logical(license('test', 'Simulink_Requirements') == 1 || ...
+                    license('test', 'SL_Reqts_and_Test_Mgr') == 1);
+            catch
+            end
 
             nl = newline;
             if isempty(model)
@@ -499,9 +776,8 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'context', ctx, 'attachments', {obj.Attachments}));
-            obj.Attachments = {};
-            obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+            obj.consumeAttachments(cc);
         end
 
         function handleCodeGenReview(obj)
@@ -550,9 +826,8 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'context', ctx, 'attachments', {obj.Attachments}));
-            obj.Attachments = {};
-            obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+            obj.consumeAttachments(cc);
         end
 
         function handleTestOrchestrate(obj)
@@ -564,22 +839,32 @@ classdef Panel < handle
             if caps.sltest
                 files = matlabcopilot.TestBridge.findTestFiles(obj.Bridge.Cwd);
                 if ~isempty(files)
-                    obj.pushToUi(struct('type', "user_echo", 'convId', cc, ...
-                        'text', "🧪▶ 运行 Test Manager 用例(" + numel(files) + " 个文件)…"));
-                    try
-                        ev = matlabcopilot.TestBridge.runTestFiles(files, cc);
-                        obj.pushToUi(ev);
-                    catch err
-                        obj.pushToUi(struct('type', "error", 'convId', cc, ...
-                            'message', "Test Manager 运行失败: " + string(err.message)));
-                    end
-                    % 收尾解除 UI busy(user_echo 会置 busy)。
-                    obj.pushToUi(struct('type', "result", 'convId', cc, 'ok', true, ...
-                        'id', '', 'text', '', 'costUsd', []));
+                    input = struct('files', {cellstr(files)});
+                    diff = struct('type', "model_test", ...
+                        'model', "Test Manager 用例文件 × " + string(numel(files)));
+                    obj.requestLocalPermission("matlabcopilot__local__test_manager", ...
+                        input, diff, "运行 Test Manager 用例(" + string(numel(files)) + " 个文件)", ...
+                        @() obj.runLocalTestFiles(files, cc), true);
                     return;
                 end
             end
             obj.aiTestOrchestrate();
+        end
+
+        function ok = runLocalTestFiles(obj, files, cc)
+            ok = false;
+            obj.pushToUi(struct('type', "user_echo", 'convId', cc, ...
+                'text', "🧪▶ 运行 Test Manager 用例(" + string(numel(files)) + " 个文件)…"));
+            try
+                ev = matlabcopilot.TestBridge.runTestFiles(files, cc);
+                obj.pushToUi(ev);
+                ok = true;
+                obj.pushLocalResult(cc, true);
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "Test Manager 运行失败: " + string(err.message)));
+                obj.pushLocalResult(cc, false);
+            end
         end
 
         function handleCoverageCheck(obj)
@@ -598,9 +883,19 @@ classdef Panel < handle
                     'text', "本机无 Simulink Coverage license,无法统计覆盖率。"));
                 return;
             end
+            input = struct('model', char(model), 'metric', 'decision/condition/mcdc');
+            diff = struct('type', "model_test", 'model', char(model));
+            obj.requestLocalPermission("matlabcopilot__local__coverage", ...
+                input, diff, "运行覆盖率仿真:" + string(model), ...
+                @() obj.runLocalCoverage(model, cc), false);
+        end
+
+        function ok = runLocalCoverage(obj, model, cc)
+            ok = false;
             obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "覆盖率仿真中(时长≈模型仿真时长)…"));
             try
                 obj.pushToUi(matlabcopilot.TestBridge.coverageGaps(model, cc));
+                ok = true;
             catch err
                 obj.pushToUi(struct('type', "error", 'convId', cc, ...
                     'message', "覆盖率统计失败: " + string(err.message)));
@@ -630,9 +925,8 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'context', ctx, 'attachments', {obj.Attachments}));
-            obj.Attachments = {};
-            obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+            obj.consumeAttachments(cc);
         end
 
         function handleBatchEdit(obj, data)
@@ -658,22 +952,30 @@ classdef Panel < handle
                 '注意:严格按需求范围操作,不要顺手改无关 block;若某个目标不确定是否该改,先问我。'];
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'context', ctx, 'attachments', {obj.Attachments}));
-            obj.Attachments = {};
-            obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+            obj.consumeAttachments(cc);
         end
 
         function handleFindBlock(obj, data)
             % 「查找模块」:让 agent 语义定位符合描述的模块并解释,回答末尾输出
             % <<HILITE: 完整路径>> 标记;结果回来后由 applyHilite 在画布上原生高亮。
             query = getfieldor(data, 'query', "");
+            cc = char(obj.ActiveConv);
+            if obj.PendingFind || (obj.PendingInsert && obj.PendingInsertConv == string(cc))
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "已有需要独占当前回包的操作进行中，请等待或先停止。"));
+                obj.pushLocalResult(cc, false);
+                return;
+            end
             model = matlabcopilot.Context.currentModel();
             if strlength(string(model)) == 0
-                obj.pushToUi(struct('type', "error", ...
+                obj.pushToUi(struct('type', "error", 'convId', char(obj.ActiveConv), ...
                     'message', "没有打开的 Simulink 模型,无法查找模块。请先打开一个模型。"));
                 return;
             end
             obj.PendingFind = true;
+            obj.PendingFindConv = string(cc);
+            obj.PendingFindModel = string(model);
             obj.PendingFindText = "";
             obj.PendingFindHits = strings(0,1);
             text = "任务:在当前 Simulink 模型「" + string(model) + "」中查找符合「" + string(query) + "」的模块。" + newline + ...
@@ -684,15 +986,17 @@ classdef Panel < handle
                 "例如:<<HILITE: " + string(model) + "/Sum>> 。路径用模型里的真实完整路径,不要加引号或反引号。" + ...
                 "这一行用于在画布高亮,用户看不到。只有在模型里确实不存在匹配模块时才省略此行。";
             ctx = obj.contextWithAttachments();
-            obj.Bridge.send(struct('type', "user_message", 'convId', char(obj.ActiveConv), ...
-                'id', char(matlab.lang.internal.uuid()), 'text', text, 'context', ctx));
+            obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
+                'id', char(matlab.lang.internal.uuid()), 'text', text, ...
+                'config', obj.convConfig(cc), 'context', ctx));
+            obj.consumeAttachments(cc);
         end
 
         function collectFindHits(obj, msg)
             % 从一次工具调用的入参里,挑出"属于当前模型的 block 路径",留作兜底高亮。
             try
                 if ~isfield(msg, 'input'); return; end
-                model = matlabcopilot.Context.currentModel();
+                model = obj.PendingFindModel;
                 if strlength(model) == 0; return; end
                 strs = matlabcopilot.ModelSearch.collectStrings(msg.input);
                 for i = 1:numel(strs)
@@ -717,14 +1021,16 @@ classdef Panel < handle
                     p = obj.PendingFindHits(end);   % 兜底:agent 读过的最后一个 block
                 end
                 if strlength(p) == 0
-                    obj.pushToUi(struct('type', "status", 'text', "未能定位可高亮的模块(已给出文字解释)"));
+                    obj.pushToUi(struct('type', "status", 'convId', char(getfieldor(msg, 'convId', obj.PendingFindConv)), ...
+                        'text', "未能定位可高亮的模块(已给出文字解释)"));
                     return;
                 end
                 if matlabcopilot.ModelSearch.highlight(p)
-                    obj.pushToUi(struct('type', "status", ...
+                    obj.pushToUi(struct('type', "status", 'convId', char(getfieldor(msg, 'convId', obj.PendingFindConv)), ...
                         'text', "已在模型中高亮: " + matlabcopilot.ModelSearch.leafName(p)));
                 else
-                    obj.pushToUi(struct('type', "status", 'text', "高亮失败,路径可能无效: " + p));
+                    obj.pushToUi(struct('type', "status", 'convId', char(getfieldor(msg, 'convId', obj.PendingFindConv)), ...
+                        'text', "高亮失败,路径可能无效: " + p));
                 end
             catch
             end
@@ -754,34 +1060,58 @@ classdef Panel < handle
                 "输入/输出信号与上下游连接,以及它在整个模型里扮演的角色。回答用简体中文。";
             ctx = obj.contextWithAttachments();
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
-                'id', char(matlab.lang.internal.uuid()), 'text', text, 'context', ctx));
+                'id', char(matlab.lang.internal.uuid()), 'text', text, ...
+                'config', obj.convConfig(cc), 'context', ctx));
+            obj.consumeAttachments(cc);
         end
 
         function handleAskAtCursor(obj, data)
             % 暂存当前光标(之后会移动),用 insert 模式发请求;结果回来再插入。
+            cc = char(obj.ActiveConv);
+            if obj.PendingInsert || (obj.PendingFind && obj.PendingFindConv == string(cc))
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "已有需要独占当前回包的操作进行中，请等待或先停止。"));
+                obj.pushLocalResult(cc, false);
+                return;
+            end
             [doc, sel] = matlabcopilot.Editor.activeCursor();
             if isempty(doc)
-                obj.pushToUi(struct('type', "error", 'message', "没有活动的编辑器文档,无法插入。"));
+                obj.pushToUi(struct('type', "error", 'convId', char(obj.ActiveConv), ...
+                    'message', "没有活动的编辑器文档,无法插入。"));
                 return;
             end
             obj.PendingDoc = doc;
             obj.PendingSel = sel;
             obj.PendingInsert = true;
+            obj.PendingInsertConv = string(cc);
+            obj.PendingInsertText = "";
             ctx = matlabcopilot.Context.snapshot();
-            obj.Bridge.send(struct('type', "user_message", 'convId', char(obj.ActiveConv), ...
+            obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), ...
                 'text', getfieldor(data, 'text', ""), ...
-                'intent', "insert_at_cursor", 'context', ctx));
+                'intent', "insert_at_cursor", 'config', obj.convConfig(cc), 'context', ctx));
         end
 
         % ── sidecar → MATLAB → JS ─────────────────────────────────────────
         function onSidecarMessage(obj, msg)
-            if obj.PendingInsert
+            if isfield(msg, 'type')
+                mt = string(msg.type);
+                if mt == "config_changed"
+                    obj.rememberConvConfig(getfieldor(msg, 'convId', "main"), getfieldor(msg, 'config', struct()));
+                elseif mt == "capabilities" && isfield(msg, 'current')
+                    obj.rememberConvConfig("main", msg.current);
+                elseif mt == "status" && string(getfieldor(msg, 'text', "")) == "interrupted"
+                    obj.clearPendingModes(getfieldor(msg, 'convId', "main"));
+                end
+            end
+            obj.cleanupTempForMessage(msg);
+            msgConv = string(getfieldor(msg, 'convId', "main"));
+            if obj.PendingInsert && msgConv == obj.PendingInsertConv
                 obj.handleInsertMode(msg);
                 return;
             end
             % 「查找模块」:边收集线索(助手文本 + 工具入参里的 block 路径),结果到了再高亮。
-            if obj.PendingFind && isfield(msg, 'type')
+            if obj.PendingFind && msgConv == obj.PendingFindConv && isfield(msg, 'type')
                 t = string(msg.type);
                 switch t
                     case "assistant_delta"
@@ -789,10 +1119,10 @@ classdef Panel < handle
                     case "tool_use"
                         obj.collectFindHits(msg);
                     case "result"
-                        obj.PendingFind = false;
                         obj.applyHilite(msg);
+                        obj.clearPendingFind(msgConv);
                     case "error"
-                        obj.PendingFind = false;
+                        obj.clearPendingFind(msgConv);
                 end
             end
             obj.pushToUi(msg);
@@ -809,10 +1139,25 @@ classdef Panel < handle
                 obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
                 return;
             end
-            ref = char(string(getfieldor(data, 'ref', "HEAD~1")));
+            try
+                ref = matlabcopilot.VersionDiff.validateRef(getfieldor(data, 'ref', "HEAD~1"));
+            catch err
+                obj.pushToUi(struct('type', "error", 'convId', cc, 'message', string(err.message)));
+                return;
+            end
+            input = struct('model', char(model), 'ref', ref);
+            diff = struct('type', "model_test", 'model', char(model));
+            obj.requestLocalPermission("matlabcopilot__local__version_diff", input, diff, ...
+                "加载历史模型并执行版本对比:" + string(ref), ...
+                @() obj.runLocalVersionDiff(model, ref, cc), false);
+        end
+
+        function ok = runLocalVersionDiff(obj, model, ref, cc)
+            ok = false;
             obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "版本对比中(" + string(ref) + ")…"));
             try
                 obj.pushToUi(matlabcopilot.VersionDiff.compare(model, ref, obj.Bridge.Cwd, cc));
+                ok = true;
             catch err
                 obj.pushToUi(struct('type', "error", 'convId', cc, ...
                     'message', "版本对比失败: " + string(err.message)));
@@ -875,10 +1220,21 @@ classdef Panel < handle
                 obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "用法:/sweep 变量名 0.5,1,2"));
                 return;
             end
+            vals = double(vals);
+            input = struct('model', char(model), 'parameter', char(vn), 'values', vals(:)');
+            diff = struct('type', "model_test", 'model', char(model));
+            obj.requestLocalPermission("matlabcopilot__local__param_sweep", ...
+                input, diff, "参数扫描:" + vn + " × " + string(numel(vals)) + " 个取值", ...
+                @() obj.runLocalParamSweep(model, vn, vals, cc), false);
+        end
+
+        function ok = runLocalParamSweep(obj, model, vn, vals, cc)
+            ok = false;
             obj.pushToUi(struct('type', "status", 'convId', cc, ...
-                'text', "参数扫描中(" + vn + " × " + numel(vals) + " 个取值)…"));
+                'text', "参数扫描中(" + vn + " × " + string(numel(vals)) + " 个取值)…"));
             try
                 obj.pushToUi(matlabcopilot.ParamSweep.sweep(model, vn, double(vals), cc));
+                ok = true;
             catch err
                 obj.pushToUi(struct('type', "error", 'convId', cc, ...
                     'message', "参数扫描失败: " + string(err.message)));
@@ -893,8 +1249,22 @@ classdef Panel < handle
                 obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
                 return;
             end
+            outFile = fullfile(char(obj.Bridge.Cwd), char(string(model) + "_SWDD.md"));
+            exists = isfile(outFile);
+            input = struct('file', outFile, 'model', char(model), 'exists', exists);
+            diff = struct('type', "file_write", 'file', outFile, 'exists', exists);
+            actionText = "写入 SWDD 草稿:" + string(outFile);
+            if exists; actionText = actionText + "(覆盖现有文件)"; end
+            obj.requestLocalPermission("matlabcopilot__local__swdd_gen", ...
+                input, diff, actionText, ...
+                @() obj.runLocalSwdd(model, cc), false);
+        end
+
+        function ok = runLocalSwdd(obj, model, cc)
+            ok = false;
             try
                 obj.pushToUi(matlabcopilot.DocGen.generate(model, obj.Bridge.Cwd, cc));
+                ok = true;
             catch err
                 obj.pushToUi(struct('type', "error", 'convId', cc, ...
                     'message', "SWDD 生成失败: " + string(err.message)));
@@ -907,15 +1277,16 @@ classdef Panel < handle
             cc = char(obj.ActiveConv);
             model = char(matlabcopilot.Context.currentModel());
             if isempty(model)
-                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "无打开的 Simulink 模型。"));
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "无打开的 Simulink 模型。"));
                 return;
             end
             hasCoder = false; hasTest = false;
             try, hasCoder = logical(license('test', 'RTW_Embedded_Coder')); catch, end
             try, hasTest = matlabcopilot.TestBridge.caps().sltest; catch, end
             if ~hasCoder
-                obj.pushToUi(struct('type', "status", 'convId', cc, ...
-                    'text', "本机无 Embedded Coder license,无法做 SIL 对比。"));
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
+                    'message', "本机无 Embedded Coder license,无法做 SIL 对比。"));
                 return;
             end
             nl = newline;
@@ -932,8 +1303,9 @@ classdef Panel < handle
                 '5. 结论:误差是否在容差内(默认 1e-6,可指出更合理容差);超差信号定位可能原因(数据类型/优化选项)。'];
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'context', matlabcopilot.Context.snapshot(), 'attachments', {obj.Attachments}));
-            obj.Attachments = {};
+                'config', obj.convConfig(cc), 'context', matlabcopilot.Context.snapshot(), ...
+                'attachments', {obj.Attachments}));
+            obj.consumeAttachments(cc);
             obj.pushToUi(struct('type', "user_echo", 'convId', cc, 'text', "⚖ MIL vs SIL 一致性验证: " + string(model)));
         end
 
@@ -943,20 +1315,35 @@ classdef Panel < handle
             cc = char(obj.ActiveConv);
             hhmm = strtrim(string(getfieldor(data, 'time', "")));
             tasks = getfieldor(data, 'tasks', {});
-            if ~iscell(tasks); tasks = {tasks}; end
+            if ischar(tasks) || (isstring(tasks) && isscalar(tasks))
+                tasks = {char(string(tasks))};
+            elseif isstring(tasks)
+                tasks = cellstr(tasks(:));
+            elseif ~iscell(tasks)
+                tasks = {tasks};
+            end
+            tasks = cellfun(@(x) char(strtrim(string(x))), tasks(:), 'UniformOutput', false);
+            tasks = tasks(~cellfun('isempty', tasks));
             tk = regexp(char(hhmm), '^(\d{1,2}):(\d{2})$', 'tokens', 'once');
             if isempty(tk) || isempty(tasks)
                 obj.pushToUi(struct('type', "status", 'convId', cc, ...
                     'text', "用法:/night 23:30 任务一; 任务二(/night off 取消)"));
                 return;
             end
-            target = datetime('today') + hours(str2double(tk{1})) + minutes(str2double(tk{2}));
+            hh = str2double(tk{1}); mm = str2double(tk{2});
+            if hh < 0 || hh > 23 || mm < 0 || mm > 59
+                obj.pushToUi(struct('type', "status", 'convId', cc, ...
+                    'text', "时间必须在 00:00 到 23:59 之间。"));
+                return;
+            end
+            target = datetime('today') + hours(hh) + minutes(mm);
             if target <= datetime('now'); target = target + days(1); end   % 已过点 → 明天
             delaySec = max(1, seconds(target - datetime('now')));
             obj.cancelNight(false);
             obj.NightTimer = timer('StartDelay', delaySec, 'ExecutionMode', 'singleShot', ...
                 'Name', 'matlabcopilot_night', ...
                 'TimerFcn', @(~, ~) obj.fireNight(cc, tasks));
+            obj.NightConv = string(cc);
             start(obj.NightTimer);
             tstr = string(datetime(target, 'Format', 'MM-dd HH:mm'));
             obj.pushToUi(struct('type', "status", 'convId', cc, 'text', ...
@@ -974,6 +1361,8 @@ classdef Panel < handle
         end
 
         function cancelNight(obj, notify)
+            notifyConv = obj.NightConv;
+            if strlength(notifyConv) == 0; notifyConv = obj.ActiveConv; end
             try
                 if ~isempty(obj.NightTimer) && isvalid(obj.NightTimer)
                     stop(obj.NightTimer); delete(obj.NightTimer);
@@ -981,8 +1370,9 @@ classdef Panel < handle
             catch
             end
             obj.NightTimer = [];
+            obj.NightConv = "";
             if notify
-                obj.pushToUi(struct('type', "status", 'convId', char(obj.ActiveConv), 'text', "夜间任务已取消"));
+                obj.pushToUi(struct('type', "status", 'convId', char(notifyConv), 'text', "夜间任务已取消"));
             end
         end
 
@@ -1031,19 +1421,27 @@ classdef Panel < handle
             if isfield(msg, 'type'); t = string(msg.type); end
             switch t
                 case {"assistant_start", "assistant_delta", "assistant_stop", "tool_use", "tool_result"}
+                    if t == "assistant_delta" && isfield(msg, 'text')
+                        obj.PendingInsertText = obj.PendingInsertText + string(msg.text);
+                    end
                     % 不进聊天区
                 case "result"
-                    obj.PendingInsert = false;
+                    cc = obj.PendingInsertConv;
                     code = "";
                     if isfield(msg, 'text'); code = string(msg.text); end
-                    ok = matlabcopilot.Editor.insertAtCursor(obj.PendingDoc, obj.PendingSel, code);
+                    if strlength(code) == 0; code = obj.PendingInsertText; end
+                    doc = obj.PendingDoc; sel = obj.PendingSel;
+                    obj.clearPendingInsert(cc);
+                    ok = matlabcopilot.Editor.insertAtCursor(doc, sel, code);
                     if ok
-                        obj.pushToUi(struct('type', "status", 'text', "已插入到光标处"));
+                        obj.pushToUi(struct('type', "status", 'convId', char(cc), 'text', "已插入到光标处"));
                     else
-                        obj.pushToUi(struct('type', "error", 'message', "插入失败,可手动复制代码。"));
+                        obj.pushToUi(struct('type', "error", 'convId', char(cc), 'message', "插入失败,可手动复制代码。"));
                     end
+                    msg.ok = logical(ok);
+                    obj.pushToUi(msg); % 释放该标签页 busy，并保留本轮成本统计
                 case "error"
-                    obj.PendingInsert = false;
+                    obj.clearPendingInsert(getfieldor(msg, 'convId', obj.PendingInsertConv));
                     obj.pushToUi(msg);
                 otherwise
                     obj.pushToUi(msg); % status 等照常透传
@@ -1065,6 +1463,9 @@ classdef Panel < handle
             % 关闭:先尽力清理(各步独立 try,任一失败都不影响删窗口),最后无条件删窗口。
             % 这样点 X 永远能关掉,绝不会因清理报错而卡住。
             try, if ~isempty(obj.Diag) && isvalid(obj.Diag); delete(obj.Diag); end, catch, end
+            try, obj.clearPendingModes(""); catch, end
+            try, obj.clearLocalPermissions(""); catch, end
+            try, obj.clearPendingAttachments(); obj.cleanupTempFiles(""); catch, end
             try, obj.cancelNight(false); catch, end   % 面板关了,夜间定时器一并撤(防孤儿 timer)
             try, obj.Bridge.close(); catch, end
             try, delete(obj.Figure); catch, end
@@ -1072,6 +1473,10 @@ classdef Panel < handle
 
         function delete(obj)
             try, if ~isempty(obj.Diag) && isvalid(obj.Diag); delete(obj.Diag); end, catch, end
+            try, obj.clearPendingModes(""); catch, end
+            try, obj.clearLocalPermissions(""); catch, end
+            try, obj.clearPendingAttachments(); obj.cleanupTempFiles(""); catch, end
+            try, obj.cancelNight(false); catch, end
             try, obj.Bridge.close(); catch, end
             try, delete(obj.Figure); catch, end
         end

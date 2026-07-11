@@ -36,20 +36,28 @@ classdef StandardsChecker
             rules.maxBlocksPerLayer = struct('enabled', true, 'value', 45);
         end
 
-        function [rules, src] = loadRules(startDir)
+        function [rules, src, loadError] = loadRules(startDir)
             % 读项目根 modeling_rules.json 并浅合并到默认;无文件/解析失败 → 纯默认。
             rules = matlabcopilot.StandardsChecker.defaultRules();
             src = "内置默认(MAB 子集)";
+            loadError = "";
             try
                 f = fullfile(char(startDir), 'modeling_rules.json');
                 if ~isfile(f); return; end
                 user = jsondecode(fileread(f));
+                if ~isstruct(user) || ~isscalar(user)
+                    error('matlabcopilot:StandardsChecker:InvalidRules', '规则文件顶层必须是 JSON object。');
+                end
                 fn = fieldnames(user);
                 for i = 1:numel(fn)
                     rules.(fn{i}) = user.(fn{i});   % 顶层字段整体覆盖,语义简单可预期
                 end
+                matlabcopilot.StandardsChecker.validateRules(rules);
                 src = "modeling_rules.json";
-            catch
+            catch err
+                rules = matlabcopilot.StandardsChecker.defaultRules();
+                src = "modeling_rules.json(无效，已回退内置默认)";
+                loadError = string(err.message);
             end
         end
 
@@ -70,8 +78,14 @@ classdef StandardsChecker
 
         function ev = report(model, cwd, convId)
             % 面向 UI 的一站式入口:载规则 → 检查 → 组装 standards_report 事件。
-            [rules, src] = matlabcopilot.StandardsChecker.loadRules(cwd);
+            [rules, src, loadError] = matlabcopilot.StandardsChecker.loadRules(cwd);
             f = matlabcopilot.StandardsChecker.check(model, rules);
+            if strlength(loadError) > 0
+                cfg = struct('rule', "ruleConfig", 'severity', "error", ...
+                    'path', string(fullfile(char(cwd), 'modeling_rules.json')), ...
+                    'msg', "规则文件无效，当前结果仅使用内置默认:" + loadError);
+                f = [cfg, f];
+            end
             nErr = nnz(string({f.severity}) == "error");
             ev = struct('type', "standards_report", 'convId', char(convId), ...
                 'model', char(model), 'source', char(src), ...
@@ -242,6 +256,39 @@ classdef StandardsChecker
             % 规则是否启用(字段缺失/enabled 缺失都当启用,便于用户 JSON 少写)。
             tf = isfield(rules, name) && ...
                 (~isfield(rules.(name), 'enabled') || logical(rules.(name).enabled));
+        end
+
+        function validateRules(rules)
+            names = ["portNaming", "subsystemNaming", "signalNaming", "unconnected", ...
+                "magicNumbers", "forbiddenBlocks", "maxDepth", "maxBlocksPerLayer"];
+            for i = 1:numel(names)
+                n = char(names(i));
+                if ~isfield(rules, n) || ~isstruct(rules.(n)) || ~isscalar(rules.(n))
+                    error('matlabcopilot:StandardsChecker:InvalidRules', '规则 %s 必须是 JSON object。', n);
+                end
+            end
+            for n = ["portNaming", "subsystemNaming", "signalNaming"]
+                key = char(n);
+                if matlabcopilot.StandardsChecker.on(rules, key)
+                    if ~isfield(rules.(key), 'pattern'); error('规则 %s 缺少 pattern。', key); end
+                    regexp('', char(string(rules.(key).pattern)), 'once');
+                end
+            end
+            if matlabcopilot.StandardsChecker.on(rules, 'magicNumbers') && ~isfield(rules.magicNumbers, 'allow')
+                error('规则 magicNumbers 缺少 allow。');
+            end
+            if matlabcopilot.StandardsChecker.on(rules, 'forbiddenBlocks') && ~isfield(rules.forbiddenBlocks, 'types')
+                error('规则 forbiddenBlocks 缺少 types。');
+            end
+            for n = ["maxDepth", "maxBlocksPerLayer"]
+                key = char(n);
+                if matlabcopilot.StandardsChecker.on(rules, key)
+                    if ~isfield(rules.(key), 'value') || ~isscalar(rules.(key).value) || ...
+                            ~isfinite(double(rules.(key).value)) || double(rules.(key).value) < 1
+                        error('规则 %s 的 value 必须是正数。', key);
+                    end
+                end
+            end
         end
     end
 end

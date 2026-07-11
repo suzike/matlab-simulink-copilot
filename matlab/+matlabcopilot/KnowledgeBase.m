@@ -9,23 +9,33 @@ classdef KnowledgeBase
     methods (Static)
         function ok = save(cwd, question, answer)
             ok = false;
+            entryFile = ""; indexTmp = "";
             try
                 d = fullfile(char(cwd), '.copilot_kb');
                 if ~isfolder(d); mkdir(d); end
-                idx = matlabcopilot.KnowledgeBase.loadIndex(d);
-                n = numel(idx) + 1;
-                file = sprintf('%03d.md', n);
-                fid = fopen(fullfile(d, file), 'w', 'n', 'UTF-8');
+                [idx, valid] = matlabcopilot.KnowledgeBase.loadIndex(d);
+                if ~valid; return; end   % 索引损坏时拒绝覆盖任何既有条目
+                file = matlabcopilot.KnowledgeBase.nextFile(d, idx);
+                entryFile = string(fullfile(d, file));
+                fid = fopen(entryFile, 'w', 'n', 'UTF-8');
+                if fid < 0; return; end
+                cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
                 fprintf(fid, '# %s\n\n%s\n', char(question), char(answer));
-                fclose(fid);
+                clear cleaner
                 keys = matlabcopilot.KnowledgeBase.fingerprint(string(question) + " " + string(answer));
                 idx{end+1} = struct('file', file, 'q', char(question), 'keys', {cellstr(keys)});
-                fid = fopen(fullfile(d, 'index.json'), 'w', 'n', 'UTF-8');
-                fwrite(fid, jsonencode(idx));
-                fclose(fid);
-                ok = true;
+                indexTmp = string([tempname(d) '.json']);
+                fid = fopen(indexTmp, 'w', 'n', 'UTF-8');
+                if fid < 0; error('matlabcopilot:KnowledgeBase:OpenFailed', '无法写入经验库索引。'); end
+                cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
+                fprintf(fid, '%s', char(jsonencode(idx)));
+                clear cleaner
+                [ok, ~] = movefile(indexTmp, fullfile(d, 'index.json'), 'f');
+                if ok; indexTmp = ""; entryFile = ""; end
             catch
             end
+            if strlength(indexTmp) > 0 && isfile(indexTmp); try, delete(indexTmp); catch, end; end
+            if strlength(entryFile) > 0 && isfile(entryFile); try, delete(entryFile); catch, end; end
         end
 
         function hits = recall(cwd, text, maxN)
@@ -33,8 +43,8 @@ classdef KnowledgeBase
             hits = {};
             try
                 d = fullfile(char(cwd), '.copilot_kb');
-                idx = matlabcopilot.KnowledgeBase.loadIndex(d);
-                if isempty(idx); return; end
+                [idx, valid] = matlabcopilot.KnowledgeBase.loadIndex(d);
+                if ~valid || isempty(idx); return; end
                 keys = matlabcopilot.KnowledgeBase.fingerprint(string(text));
                 errIds = regexp(lower(char(text)), '\w+:\w+(:\w+)*', 'match');   % MException 标识符(小写,与指纹一致)
                 scores = zeros(1, numel(idx));
@@ -62,15 +72,46 @@ classdef KnowledgeBase
             end
         end
 
-        function idx = loadIndex(d)
+        function [idx, valid] = loadIndex(d)
             idx = {};
+            valid = true;
             try
                 f = fullfile(d, 'index.json');
                 if ~isfile(f); return; end
                 raw = jsondecode(fileread(f));
+                if isempty(raw); return; end
                 if isstruct(raw); raw = num2cell(raw); end
+                if ~iscell(raw); valid = false; return; end
                 idx = raw(:)';
+                for i = 1:numel(idx)
+                    e = idx{i};
+                    if ~isstruct(e) || ~isfield(e, 'file') || ~isfield(e, 'q') || ~isfield(e, 'keys')
+                        idx = {}; valid = false; return;
+                    end
+                    [~, n, x] = fileparts(char(string(e.file)));
+                    if string([n x]) ~= string(e.file) || ~strcmpi(x, '.md')
+                        idx = {}; valid = false; return;
+                    end
+                end
             catch
+                idx = {};
+                valid = false;
+            end
+        end
+
+        function file = nextFile(d, idx)
+            % 编号同时参考索引和磁盘文件；孤儿条目也绝不覆盖。
+            used = zeros(0, 1);
+            fs = dir(fullfile(d, '*.md'));
+            for i = 1:numel(fs)
+                t = regexp(fs(i).name, '^(\d+)\.md$', 'tokens', 'once');
+                if ~isempty(t); used(end+1, 1) = str2double(t{1}); end %#ok<AGROW>
+            end
+            n = max([0; used; numel(idx)]) + 1;
+            file = sprintf('%03d.md', n);
+            while isfile(fullfile(d, file))
+                n = n + 1;
+                file = sprintf('%03d.md', n);
             end
         end
 

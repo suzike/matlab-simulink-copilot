@@ -10,7 +10,12 @@ classdef TestBridge
         function c = caps()
             c = struct();
             try, c.sltest = exist('sltest.testmanager.TestFile', 'class') == 8; catch, c.sltest = false; end
-            try, c.coverage = logical(license('test', 'SL_Coverage')) && exist('cvtest', 'file') > 0; catch, c.coverage = false; end
+            try
+                hasCoverage = license('test', 'Simulink_Coverage') == 1 || license('test', 'SL_Coverage') == 1;
+                c.coverage = logical(hasCoverage) && exist('cvtest', 'file') > 0;
+            catch
+                c.coverage = false;
+            end
         end
 
         function files = findTestFiles(cwd)
@@ -76,8 +81,8 @@ classdef TestBridge
                 if ~isempty(gd) && gd(2) > 0 && gd(1) < gd(2)
                     gaps{end+1} = struct('path', string(blks{i}), 'metric', "decision", ...
                         'hit', gd(1), 'total', gd(2)); %#ok<AGROW>
-                    continue;
                 end
+                if numel(gaps) >= 40; break; end
                 gc = matlabcopilot.TestBridge.pairOf(@() conditioninfo(data, blks{i}));
                 if ~isempty(gc) && gc(2) > 0 && gc(1) < gc(2)
                     gaps{end+1} = struct('path', string(blks{i}), 'metric', "condition", ...

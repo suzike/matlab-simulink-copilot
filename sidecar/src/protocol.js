@@ -4,13 +4,13 @@
 // ── 入站(UI/MATLAB → sidecar)────────────────────────────────────────────
 // 多会话:大多数入站消息可带 convId(标签页/分支 id),缺省为 'main'。
 export const InMsg = Object.freeze({
-  USER_MESSAGE: 'user_message',       // { type, id, text, context, intent?, convId? }
+  USER_MESSAGE: 'user_message',       // { type, id, text, context, intent?, convId?, config? }
   INTERRUPT: 'interrupt',             // { type, convId? }
   PERMISSION_RESPONSE: 'permission_response', // { type, id, approved }
   PING: 'ping',                       // { type }
   SET_CONFIG: 'set_config',           // { type, config:{backend?,model?,effort?,mode?}, convId? } 运行时切换
   GET_CAPABILITIES: 'get_capabilities', // { type } 请求可用后端/模型/模式/命令
-  SLASH_COMMAND: 'slash_command',     // { type, name, args, context, convId? } 执行斜杠命令
+  SLASH_COMMAND: 'slash_command',     // { type, name, args, context, convId?, config? } 执行斜杠命令
   CLOSE_CONV: 'close_conv',           // { type, convId } 关闭一个会话(标签页),停其后端
 });
 

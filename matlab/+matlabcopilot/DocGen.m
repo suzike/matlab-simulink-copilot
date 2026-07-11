@@ -74,8 +74,12 @@ classdef DocGen
             text = strjoin(md, newline);
             file = fullfile(char(cwd), [m '_SWDD.md']);
             fid = fopen(file, 'w', 'n', 'UTF-8');
+            if fid < 0
+                error('matlabcopilot:DocGen:OpenFailed', '无法写入 SWDD 文件:%s', file);
+            end
+            cleaner = onCleanup(@() fclose(fid)); %#ok<NASGU>
             fwrite(fid, char(text));
-            fclose(fid);
+            clear cleaner
             ev = struct('type', "swdd_draft", 'convId', char(convId), 'model', m, ...
                 'file', file, 'content', text);
         end

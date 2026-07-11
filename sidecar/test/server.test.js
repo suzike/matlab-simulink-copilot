@@ -65,6 +65,127 @@ test('ping/pong', async () => {
   await server.stop();
 });
 
+test('USER_MESSAGE 顶层 attachments 会合并进 context.attachments', async () => {
+  let captured;
+  class CaptureAdapter extends BackendAdapter {
+    async sendMessage(payload) {
+      captured = payload;
+      this.emitEvent({ type: OutMsg.RESULT, id: null, ok: true, text: '', costUsd: 0 });
+    }
+  }
+  const server = new Server({ makeAdapter: () => new CaptureAdapter(), config: {}, host: '127.0.0.1', clientPort: 0, controlPort: 0 });
+  const { clientPort } = await server.start();
+  const c = connectClient(clientPort);
+  await c.waitFor((m) => m.type === OutMsg.READY);
+
+  c.send({
+    type: InMsg.USER_MESSAGE,
+    id: 'u-attach',
+    text: '看图',
+    context: { currentModel: 'demo' },
+    attachments: [{ name: 'demo.png', path: 'C:/tmp/demo.png', isImage: true }],
+  });
+  await c.waitFor((m) => m.type === OutMsg.RESULT);
+
+  assert.equal(captured.context.currentModel, 'demo');
+  assert.equal(captured.context.attachments[0].name, 'demo.png');
+  assert.equal(captured.context.attachments[0].path, 'C:/tmp/demo.png');
+
+  c.close();
+  await server.stop();
+});
+
+test('新会话首条消息在创建 adapter 前应用其完整配置', async () => {
+  const states = new Map();
+  class CaptureAdapter extends BackendAdapter {
+    async sendMessage() {
+      this.emitEvent({ type: OutMsg.RESULT, id: null, ok: true, text: '', costUsd: 0 });
+    }
+  }
+  const server = new Server({
+    makeAdapter: (state) => { states.set(state.convId, state); return new CaptureAdapter(); },
+    config: { backend: 'claude', model: 'default', effort: 'medium', mode: 'ask' },
+    host: '127.0.0.1', clientPort: 0, controlPort: 0,
+  });
+  const { clientPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+
+  ui.send({ type: InMsg.USER_MESSAGE, convId: 'fork-config', id: 'u-config', text: 'hi',
+    config: { backend: 'codex', model: 'gpt-5', effort: 'high', mode: 'plan' } });
+  await ui.waitFor((m) => m.type === OutMsg.RESULT && m.convId === 'fork-config');
+
+  assert.deepEqual(
+    { backend: states.get('fork-config').backend, model: states.get('fork-config').model,
+      effort: states.get('fork-config').effort, mode: states.get('fork-config').mode },
+    { backend: 'codex', model: 'gpt-5', effort: 'high', mode: 'plan' },
+  );
+
+  ui.send({ type: InMsg.SLASH_COMMAND, convId: 'slash-config', name: '/compact', args: '',
+    config: { backend: 'codex', model: 'gpt-5-mini', effort: 'low', mode: 'auto' }, context: {} });
+  await ui.waitFor((m) => m.type === OutMsg.RESULT && m.convId === 'slash-config');
+  assert.deepEqual(
+    { backend: states.get('slash-config').backend, model: states.get('slash-config').model,
+      effort: states.get('slash-config').effort, mode: states.get('slash-config').mode },
+    { backend: 'codex', model: 'gpt-5-mini', effort: 'low', mode: 'auto' },
+  );
+
+  ui.send({ type: InMsg.SET_CONFIG, convId: 'set-first',
+    config: { backend: 'codex', model: 'gpt-5', effort: 'medium', mode: 'plan' } });
+  const changed = await ui.waitFor((m) => m.type === OutMsg.CONFIG_CHANGED && m.convId === 'set-first');
+  assert.equal(changed.config.mode, 'plan');
+  assert.deepEqual(
+    { backend: states.get('set-first').backend, model: states.get('set-first').model,
+      effort: states.get('set-first').effort, mode: states.get('set-first').mode },
+    { backend: 'codex', model: 'gpt-5', effort: 'medium', mode: 'plan' },
+  );
+  ui.close();
+  await server.stop();
+});
+
+test('配置重建期间消息等待新 adapter；中断可取消等待派发且旧事件被丢弃', async () => {
+  const sent = [];
+  const adapters = [];
+  class TrackingAdapter extends BackendAdapter {
+    constructor(state) { super(); this.mode = state.mode; adapters.push(this); }
+    async stop() { await new Promise((r) => setTimeout(r, 20)); }
+    async sendMessage(payload) {
+      sent.push({ mode: this.mode, text: payload.text });
+      this.emitEvent({ type: OutMsg.RESULT, id: null, ok: true, text: '', costUsd: 0 });
+    }
+    interrupt() { this.interrupted = true; }
+  }
+  const server = new Server({
+    makeAdapter: (state) => new TrackingAdapter(state),
+    config: { backend: 'x', mode: 'ask' },
+    host: '127.0.0.1', clientPort: 0, controlPort: 0,
+  });
+  const { clientPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+  const old = adapters[0];
+
+  ui.send({ type: InMsg.SET_CONFIG, convId: 'main', config: { mode: 'auto' } });
+  ui.send({ type: InMsg.USER_MESSAGE, convId: 'main', id: 'race-1', text: 'use-new' });
+  await ui.waitFor((m) => m.type === OutMsg.RESULT && m.convId === 'main');
+  assert.deepEqual(sent, [{ mode: 'auto', text: 'use-new' }]);
+
+  old.emitEvent({ type: OutMsg.ASSISTANT_DELTA, id: 'late-old', text: 'late-old' });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(ui.all.some((m) => m.id === 'late-old'), false);
+
+  ui.send({ type: InMsg.SET_CONFIG, convId: 'main', config: { mode: 'plan' } });
+  ui.send({ type: InMsg.USER_MESSAGE, convId: 'main', id: 'race-2', text: 'cancel-me' });
+  ui.send({ type: InMsg.INTERRUPT, convId: 'main' });
+  await ui.waitFor((m) => m.type === OutMsg.CONFIG_CHANGED && m.convId === 'main' && m.config.mode === 'plan');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(sent.some((x) => x.text === 'cancel-me'), false);
+  assert.equal(adapters.at(-1).interrupted, true);
+
+  ui.close();
+  await server.stop();
+});
+
 test('权限路由:只读自动放行,破坏性转发 UI 并由响应解决', async () => {
   const server = new Server({ makeAdapter: () => new BackendAdapter(), config: {}, host: '127.0.0.1', clientPort: 0, controlPort: 0 });
   const { clientPort, controlPort } = await server.start();
@@ -184,6 +305,56 @@ test('操作审计:破坏性工具留痕并随结果更新,只读不记', async 
   await server.stop();
 });
 
+test('操作审计:动作摘要脱敏代码与凭据形态', async () => {
+  let adapter;
+  const server = new Server({ makeAdapter: () => (adapter = new BackendAdapter()), config: { backend: 'x', mode: 'ask' }, host: '127.0.0.1', clientPort: 0, controlPort: 0 });
+  const { clientPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+
+  adapter.emitEvent({
+    type: OutMsg.TOOL_USE,
+    id: 'secret1',
+    name: 'mcp__matlab__evaluate_matlab_code',
+    input: { code: "disp(getenv('OPENAI_API_KEY'))", value: 'Bearer abc.def.ghi', model: 'demo' },
+  });
+  const a = await ui.waitFor((m) => m.type === OutMsg.AUDIT && m.entry.id === 'secret1');
+  assert.match(a.entry.action, /code=\[已脱敏:code,/);
+  assert.doesNotMatch(a.entry.action, /OPENAI_API_KEY|Bearer abc/);
+
+  ui.close();
+  await server.stop();
+});
+
+test('操作审计:相同 tool id 按 convId 更新,不串标签页', async () => {
+  const adapters = {};
+  const server = new Server({
+    makeAdapter: (state) => (adapters[state.convId || 'main'] = new BackendAdapter()),
+    config: { backend: 'x', mode: 'ask' },
+    host: '127.0.0.1',
+    clientPort: 0,
+    controlPort: 0,
+  });
+  const { clientPort } = await server.start();
+  server.ensureConv('t2');
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+
+  adapters.main.emitEvent({ type: OutMsg.TOOL_USE, id: 'same', name: 'mcp__matlab__model_edit', input: { block: 'A' } });
+  adapters.t2.emitEvent({ type: OutMsg.TOOL_USE, id: 'same', name: 'mcp__matlab__model_edit', input: { block: 'B' } });
+  await ui.waitFor((m) => m.type === OutMsg.AUDIT && m.entry.id === 'same' && m.entry.convId === 'main');
+  await ui.waitFor((m) => m.type === OutMsg.AUDIT && m.entry.id === 'same' && m.entry.convId === 't2');
+
+  adapters.t2.emitEvent({ type: OutMsg.TOOL_RESULT, id: 'same', ok: false });
+  await ui.waitFor((m) => m.type === OutMsg.AUDIT && m.entry.id === 'same' && m.entry.convId === 't2' && m.entry.status === 'failed');
+
+  const mainUpdates = ui.all.filter((m) => m.type === OutMsg.AUDIT && m.entry.id === 'same' && m.entry.convId === 'main');
+  assert.equal(mainUpdates.at(-1).entry.status, 'pending');
+
+  ui.close();
+  await server.stop();
+});
+
 test('安全自省判定:只放过 help/which/exist/lookfor 只读调用,其余仍受门控', () => {
   const T = 'mcp__matlab__evaluate_matlab_code';
   // 放行(文档兜底用的只读自省)
@@ -234,4 +405,50 @@ test('control 连接断开 → 清理该连接的悬挂权限请求(防 Map 泄�
   assert.equal(server.pendingPermissions.size, 0, 'control 断开后悬挂条目应被清理');
   ui.close();
   await server.stop();
+});
+
+test('关闭会话 → 立即拒绝该会话的悬挂权限并释放 adapter', async () => {
+  const adapters = new Map();
+  class TrackingAdapter extends BackendAdapter {
+    async stop() { this.stopped = true; }
+  }
+  const server = new Server({
+    makeAdapter: ({ convId }) => {
+      const a = new TrackingAdapter(); adapters.set(convId, a); return a;
+    },
+    config: { mode: 'ask' }, host: '127.0.0.1', clientPort: 0, controlPort: 0,
+  });
+  const { clientPort, controlPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+  server.ensureConv('close-me');
+  const ctrl = connectClient(controlPort);
+  ctrl.send({ type: 'permission_request', convId: 'close-me', id: 'p-close',
+    tool: 'mcp__matlab__model_edit', input: { block: 'G' } });
+  await ui.waitFor((m) => m.type === OutMsg.PERMISSION_REQUEST && m.id === 'p-close');
+
+  ui.send({ type: InMsg.CLOSE_CONV, convId: 'close-me' });
+  const d = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'p-close');
+  assert.equal(d.approved, false);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(server.pendingPermissions.size, 0);
+  assert.equal(server.convs.has('close-me'), false);
+  assert.equal(adapters.get('close-me').stopped, true);
+
+  ctrl.close(); ui.close(); await server.stop();
+});
+
+test('UI 断开 → 立即拒绝所有悬挂权限', async () => {
+  const server = new Server({ makeAdapter: () => new BackendAdapter(), config: { mode: 'ask' }, host: '127.0.0.1', clientPort: 0, controlPort: 0 });
+  const { clientPort, controlPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+  const ctrl = connectClient(controlPort);
+  ctrl.send({ type: 'permission_request', id: 'p-disconnect', tool: 'mcp__matlab__model_edit', input: { block: 'G' } });
+  await ui.waitFor((m) => m.type === OutMsg.PERMISSION_REQUEST && m.id === 'p-disconnect');
+  ui.close();
+  const d = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'p-disconnect');
+  assert.equal(d.approved, false);
+  assert.equal(server.pendingPermissions.size, 0);
+  ctrl.close(); await server.stop();
 });

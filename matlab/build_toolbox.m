@@ -24,8 +24,11 @@ identifier = '7c5cff00-c0de-4a11-9a2b-0c0de1100001';  % 固定工具箱标识
 % ToolboxOptions 第一个参数只接受单一文件夹路径(字符串标量)。
 % 收集需要的文件后赋给 ToolboxFiles 属性来控制打包范围。
 % **排除 node_modules**:sidecar 零 npm 依赖,无需打包;且其深层路径会触发 Windows 260 MAX_PATH 问题。
-excludeDirs = [".git", ".spec-workflow", "ModelandCode_EP2", "slprj", ".vscode", "tasks", "node_modules", "_verify"];
-files = gatherFiles(root, excludeDirs);
+excludeDirs = [".git", ".spec-workflow", ".playwright-mcp", ".claude", ".vscode", ...
+    "ModelandCode_EP2", "slprj", "tasks", "node_modules", "_verify", "_nm_bak"];
+excludeFiles = ["MATLAB-Copilot.mltbx", "SHA256SUMS.txt", "matlab-agent-audit-ui.png"];
+excludeExtensions = [".log", ".tmp", ".slxc", ".mltbx"];
+files = gatherFiles(root, excludeDirs, excludeFiles, excludeExtensions);
 if isempty(files)
     error('matlabcopilot:noFiles', '未收集到任何文件。');
 end
@@ -33,7 +36,7 @@ end
 opts = matlab.addons.toolbox.ToolboxOptions(root, identifier);
 opts.ToolboxFiles = files;                   % 覆盖为筛选后的文件列表
 opts.ToolboxName = "MATLAB-Copilot";            % 纯 ASCII — 避免安装路径含 CJK 字符导致 Node.js 子进程问题
-opts.ToolboxVersion = "0.9.0";
+opts.ToolboxVersion = "0.10.0";
 opts.Summary = "AI Copilot sidebar for MATLAB/Simulink";
 opts.Description = ['Native AI Copilot sidebar for MATLAB/Simulink (Claude Code / Codex backend). ' ...
     'Sidecar has zero npm dependencies — no node_modules, no npm install needed.'];
@@ -53,7 +56,7 @@ fprintf(['已打包: %s\n' ...
 end
 
 % 递归收集文件,跳过 excludeDirs 命名的目录。
-function files = gatherFiles(root, excludeDirs)
+function files = gatherFiles(root, excludeDirs, excludeFiles, excludeExtensions)
 files = strings(0, 1);
 stack = {root};
 while ~isempty(stack)
@@ -67,6 +70,10 @@ while ~isempty(stack)
             if any(string(nm) == excludeDirs); continue; end
             stack{end+1} = full; %#ok<AGROW>
         else
+            [~, ~, ext] = fileparts(nm);
+            if any(string(nm) == excludeFiles) || any(lower(string(ext)) == excludeExtensions)
+                continue;
+            end
             files(end+1, 1) = string(full); %#ok<AGROW>
         end
     end

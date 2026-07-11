@@ -3,8 +3,8 @@
     <linearGradient id="bg4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b1626"/><stop offset="1" stop-color="#16121f"/></linearGradient>
   </defs>
   <rect width="920" height="560" rx="14" fill="url(#bg4)"/>
-  <text x="36" y="44" fill="#f3f0fa" font-size="20" font-weight="700">功能全景</text>
-  <text x="36" y="66" fill="#9a92ad" font-size="12.5">对标官方 6 项能力已全部对齐或超过，并额外做了 MBD 工程化与会话能力。</text>
+  <text x="36" y="44" fill="#f3f0fa" font-size="20" font-weight="700">v0.10 功能全景</text>
+  <text x="36" y="66" fill="#9a92ad" font-size="12.5">原生内嵌 AI 助手 + 确定性 MBD 工程套件 + 多会话可靠性与统一安全门控。</text>
 
   <!-- col 1: 对标官方 -->
   <rect x="36" y="86" width="280" height="446" rx="12" fill="#231b38" stroke="#7c3aed"/>
@@ -35,7 +35,7 @@
     <text x="348" y="286">🔄 自愈验证环（run→修→重跑）</text>
     <text x="348" y="316">📸 画布截图分析（多模态）</text>
     <text x="348" y="346">✔ 标准检查 / 🧪 生成测试</text>
-    <text x="348" y="376">💬 加注释 / 📖 查文档</text>
+    <text x="348" y="376">📌 经验库 / 📄 SWDD / ◈ 版本 diff</text>
   </g>
   <rect x="348" y="396" width="240" height="42" rx="8" fill="#2c2440" stroke="#473a63"/>
   <text x="468" y="421" fill="#cbbff0" font-size="11" text-anchor="middle">Embedded Coder / Requirements</text>
@@ -53,11 +53,11 @@
     <text x="640" y="296">📁 工程级全工程索引</text>
     <text x="640" y="326">☑ 任务清单可视化</text>
     <text x="640" y="356">⌨ Ctrl+K 命令面板 + 快捷键</text>
-    <text x="640" y="386">💰 成本 / token 显示</text>
-    <text x="640" y="416">🎨 主题三选（Light/Dark/随 MATLAB）</text>
+    <text x="640" y="386">📝 批注 / 队列 / 引导 / Esc 中断</text>
+    <text x="640" y="416">🎨 主题三选 + 轮次导航轨</text>
   </g>
   <rect x="640" y="436" width="224" height="40" rx="8" fill="#2c2440" stroke="#473a63"/>
   <text x="752" y="461" fill="#cbbff0" font-size="11" text-anchor="middle">无 CDN · 零 npm 依赖</text>
 
-  <text x="460" y="552" fill="#6b6480" font-size="10.5" text-anchor="middle">50 个 sidecar 单测 · 安全门控全程不可绕过 · 详见 README 与 plan.md</text>
+  <text x="460" y="552" fill="#6b6480" font-size="10.5" text-anchor="middle">65 个 sidecar 测试 · 11 个测试文件 · MATLAB R2025b 真实界面与类加载验证</text>
 </svg>
