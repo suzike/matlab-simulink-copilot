@@ -24,6 +24,14 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.10.1 发布质量门禁
+
+- 统一 Release 静态检查：版本、运行时依赖、Git/MLTBX 清单、UTF-8、UI 语法、打包排除项与 SHA-256。
+- Playwright 固定验证桌面/窄屏、明暗主题、代表性消息状态和功能按钮文字边界。
+- `release_acceptance.m` 从最终 `.mltbx` 解包执行类加载、`checkcode`、`copilot_doctor` 与 Echo TCP 全链路，输出 JSON 证据。
+- GitHub Actions 在 Windows 执行 Node、UI 与静态门禁；MATLAB R2025b 验收作为本地发布证据。
+- 工具栏 16/24 px 图标纳入版本控制，干净检出可重复打包。
+
 ### v0.10.0 收口：统一安全与多会话可靠性
 
 - 新标签、Fork、隐藏体检会话首消息携带完整 config，sidecar 在 adapter 创建前应用。

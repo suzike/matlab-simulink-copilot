@@ -7,6 +7,30 @@
 
 ---
 
+## [0.10.1] — 2026-07-18
+
+本补丁版本建立可重复执行的发布质量门禁，重点防止安装包内容漂移和 UI 文字越界回归。
+
+### 新增（Added）
+
+- 新增 `scripts/release-check.mjs`，检查版本一致性、运行时零依赖、Git/MLTBX 清单、关键图标、UTF-8、UI 脚本语法、打包排除项和 SHA-256，并可输出机器可读 JSON。
+- 新增 Playwright 桌面与窄屏布局回归，覆盖明暗主题、代表性对话/工具状态、页面横向溢出和快捷按钮文字边界。
+- 新增 `release_acceptance.m`，从最终 `.mltbx` 解包执行 MATLAB 类加载、`checkcode`、`copilot_doctor` 和 Echo TCP 全链路；Add-On 注册安装保持显式启用和替换保护。
+- 新增 Windows GitHub Actions 质量门禁与 Release 验收清单。
+
+### 变更（Changed）
+
+- `copilot_doctor` 在保留原有可读输出的同时返回结构化检查结果。
+- 将 Simulink 工具栏 16/24 px 图标纳入版本控制，保证干净检出后的安装包可重复构建。
+- Playwright 仅作为开发依赖；sidecar 运行时依赖仍为零，`.mltbx` 继续排除 `node_modules`。
+
+### 验证（Verified）
+
+- Sidecar：65 项 Node 测试全部通过。
+- UI：4 项 Playwright 场景通过，覆盖 1100×1000 和 520×900 两种视口及明暗主题。
+- MATLAB：R2025b `checkcode`、结构化 `copilot_doctor`、包内类加载和 Echo TCP 全链路验收。
+- 发布包：`MATLAB-Copilot.mltbx` 使用 `ToolboxVersion=0.10.1` 重新构建并通过内容清单与 SHA-256 门禁。
+
 ## [0.10.0] — 2026-07-11
 
 本版本完成半成品功能收口，重点统一多会话配置、MATLAB 本地操作权限和资源生命周期，并修复会话启动/关闭时的异步竞态。
@@ -155,6 +179,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.10.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.1
 [0.10.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.0
 [0.9.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.9.0
 [0.7.5]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.7.5

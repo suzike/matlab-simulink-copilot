@@ -6,7 +6,7 @@
 
 停靠式 `uihtml` 面板，自动感知 MATLAB 工程和活动模型，通过本地 sidecar 驱动 Claude Code / Codex，并复用 MATLAB MCP 操作当前 MATLAB 会话。
 
-[![Version](https://img.shields.io/badge/version-0.10.0-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.0)
+[![Version](https://img.shields.io/badge/version-0.10.1-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.1)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/backends-Claude%20Code%20%7C%20Codex-2563eb)
@@ -22,7 +22,7 @@
 下面两张图均由仓库当前代码在 **MATLAB R2025b** 中实际启动 `matlabcopilot.Panel` 后，通过 MATLAB `exportapp` 导出，不是外部浏览器效果图。
 
 <div align="center">
-  <img src="docs/images/v0.10-matlab-embedded.jpg" width="900" alt="MATLAB R2025b 内真实运行的 MATLAB Copilot v0.10.0">
+  <img src="docs/images/v0.10-matlab-embedded.jpg" width="900" alt="MATLAB R2025b 内真实运行的 MATLAB Copilot v0.10.1">
   <br>
   <sub>真实 MATLAB 内嵌面板：活动工程上下文、Echo 全链路冒烟、当前工具栏与 MBD 快捷动作。</sub>
 </div>
@@ -30,14 +30,22 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/v0.10-matlab-safety.jpg" width="900" alt="MATLAB Copilot v0.10.0 工程报告与权限门控">
+  <img src="docs/images/v0.10-matlab-safety.jpg" width="900" alt="MATLAB Copilot v0.10.1 工程报告与权限门控">
   <br>
   <sub>真实 MATLAB 内嵌渲染：规范检查、覆盖率和本地权限确认卡。报告数值为固定协议演示数据，仅用于验证当前 UI 事件链。</sub>
 </div>
 
-## v0.10.0 重点
+## v0.10.1 重点
 
-这个版本集中完成了未完成功能的收口、安全边界统一和多会话竞态修复。
+这个补丁版本在 v0.10.0 功能基线上补齐可重复执行的发布质量门禁。
+
+- **最终安装包验收**：`release_acceptance` 解包 `.mltbx`，从包内代码执行类加载、`checkcode`、环境自检与 Echo TCP 全链路，并输出 JSON 证据。
+- **浏览器布局回归**：Playwright 固定验证 1100×1000、520×900、明暗主题、代表性消息和快捷功能按钮，阻止文字越界与页面横向溢出回归。
+- **静态 Release 门禁**：统一检查版本一致性、运行时零依赖、Git/安装包清单、关键图标、UTF-8、UI 脚本语法、打包污染和 SHA-256。
+- **CI 接入**：GitHub Actions 在 Windows 上执行 Node、UI 和静态发布门禁；MATLAB R2025b 验收保留机器可读的本机证据。
+- **结构化环境诊断**：`copilot_doctor` 保留原有终端输出，同时返回可供自动验收消费的检查结果。
+
+v0.10.0 完成的安全与可靠性能力继续保留：
 
 - **每会话配置原子继承**：新标签、Fork 和隐藏体检会话的首条消息携带完整 `config`；sidecar 在 adapter 创建前应用，避免先用默认配置启动再切换。
 - **会话启动与关闭屏障**：`ready / generation / dispatchEpoch / closed` 共同保证配置重建期间不误派发，Stop 能取消待派发消息，关闭后迟到事件不会污染 UI。
@@ -53,7 +61,7 @@
 ## 系统架构
 
 <div align="center">
-  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.10.0 静态系统架构图">
+  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.10.1 静态系统架构图">
 </div>
 
 | 层 | 当前职责 | 关键实现 |
@@ -74,7 +82,7 @@
 ### 一轮消息的数据流
 
 <div align="center">
-  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.10.0 消息数据流图">
+  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.10.1 消息数据流图">
 </div>
 
 - MATLAB 与 sidecar 使用 localhost TCP + 行分隔 JSON；线上字符串统一转为 ASCII `\uXXXX`，规避 `tcpclient` UTF-8 解码问题。
@@ -86,7 +94,7 @@
 ## 功能全景
 
 <div align="center">
-  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.10.0 功能全景图">
+  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.10.1 功能全景图">
 </div>
 
 ### AI 与模型交互
@@ -149,7 +157,7 @@
 ## 权限与安全
 
 <div align="center">
-  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.10.0 权限与安全逻辑图">
+  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.10.1 权限与安全逻辑图">
 </div>
 
 | 模式 | 只读操作 | 修改模型/写文件 | 执行 MATLAB / shell / 测试 | MATLAB 本地确定性副作用 |
@@ -233,6 +241,15 @@ Set-Location sidecar
 npm test
 ```
 
+完整 Release 自动门禁：
+
+```powershell
+Set-Location sidecar
+npm ci
+npx playwright install chromium
+npm run release:verify
+```
+
 MATLAB 静态和类加载验证：
 
 ```matlab
@@ -246,6 +263,16 @@ meta.class.fromName('matlabcopilot.Panel')
 ```matlab
 run('matlab/build_toolbox.m')
 ```
+
+对最终安装包执行非破坏性 MATLAB 验收并生成机器可读报告：
+
+```matlab
+addpath('matlab')
+release_acceptance('MATLAB-Copilot.mltbx', ...
+    ReportFile='_verify/matlab-release-acceptance.json')
+```
+
+详细发布步骤和受保护的 Add-On 安装验收见 [Release 验收清单](docs/RELEASE_CHECKLIST.md)。
 
 本 Release 的发布门槛包括：65 个 sidecar 测试、UI 两段脚本语法检查、MATLAB `checkcode` / 类加载、真实 MATLAB 面板启动与截图、`.mltbx` 构建、SHA-256 生成和 GitHub Release 资产校验。
 

@@ -21,6 +21,7 @@ _nm_bak/
 !docs/**/*.png
 !docs/**/*.svg
 !docs/**/*.gif
+!matlab/resources/icons/*.png
 
 # ── 操作系统 ────────────────────────────────────
 .DS_Store

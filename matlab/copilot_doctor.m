@@ -1,4 +1,4 @@
-function copilot_doctor()
+function summary = copilot_doctor()
 % COPILOT_DOCTOR  MATLAB Copilot 环境自诊断。
 %   逐项 PASS/FAIL + 可操作的一行修复指令；统计失败项并给出结论。
 %
@@ -15,6 +15,11 @@ results{end+1} = checkSidecarDeps();
 results{end+1} = checkPort();
 
 fails = sum(cellfun(@(r) ~r.ok, results));
+summary = struct( ...
+    'ok', fails == 0, ...
+    'passed', numel(results) - fails, ...
+    'failed', fails, ...
+    'checks', {results});
 fprintf('\n');
 if fails == 0
     fprintf('结论: 全部通过，运行 copilot() 即可。\n');
