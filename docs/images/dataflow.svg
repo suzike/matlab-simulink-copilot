@@ -27,7 +27,7 @@
     <text x="104" y="118" fill="#cbbff0">① 用户输入（uihtml 事件桥）</text>
 
     <line x1="290" y1="160" x2="478" y2="160" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
-    <text x="294" y="154" fill="#cbbff0">② 上下文 + 完整 per-conv config + 一次性附件</text>
+    <text x="294" y="154" fill="#cbbff0">② per-conv 上下文 + 完整 config + 隔离附件</text>
 
     <line x1="480" y1="196" x2="668" y2="196" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
     <text x="484" y="190" fill="#cbbff0">③ 等待 ready 屏障后派发；配置重建原子生效</text>
@@ -45,7 +45,7 @@
     <text x="296" y="334" fill="#cbbff0">⑦ 校验 generation/dispatchEpoch → ASCII 行 JSON</text>
 
     <line x1="288" y1="376" x2="102" y2="376" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a2)"/>
-    <text x="106" y="370" fill="#cbbff0">⑧ 渲染并在已派发后消费/清理附件</text>
+    <text x="106" y="370" fill="#cbbff0">⑧ 渲染目标会话并消费/清理其附件</text>
   </g>
 
   <!-- permission side note -->

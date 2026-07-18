@@ -61,3 +61,52 @@ test('亮色和暗色主题均可正常渲染', async ({ page }) => {
     expect(problems.document[0], `${theme}: ${JSON.stringify(problems, null, 2)}`).toBeLessThanOrEqual(problems.viewport[0] + 1);
   }
 });
+
+test('上下文和附件按 convId 隔离', async ({ page }) => {
+  await page.evaluate(() => {
+    makeTabState('t-isolation', '隔离会话');
+    onSidecar({ type: 'context', convId: 'main', context: { currentModel: 'MainModel' } });
+    onSidecar({ type: 'attachments', convId: 'main', files: ['main-only.png'] });
+    switchTab('t-isolation');
+    onSidecar({ type: 'context', convId: 't-isolation', context: { currentModel: 'SecondModel' } });
+    onSidecar({ type: 'attachments', convId: 't-isolation', files: ['second-only.csv'] });
+  });
+
+  await expect(page.locator('#attachments')).toContainText('second-only.csv');
+  await expect(page.locator('#attachments')).not.toContainText('main-only.png');
+  await expect(page.locator('#ctx-pop')).toContainText('SecondModel');
+
+  await page.evaluate(() => switchTab('main'));
+  await expect(page.locator('#attachments')).toContainText('main-only.png');
+  await expect(page.locator('#attachments')).not.toContainText('second-only.csv');
+  await expect(page.locator('#ctx-pop')).toContainText('MainModel');
+
+  await page.evaluate(() => {
+    onSidecar({ type: 'context', convId: 't-isolation', context: { currentModel: 'SecondModelUpdated' } });
+    onSidecar({ type: 'attachments', convId: 't-isolation', files: ['second-updated.json'] });
+  });
+  await expect(page.locator('#attachments')).toContainText('main-only.png');
+  await expect(page.locator('#ctx-pop')).toContainText('MainModel');
+
+  await page.evaluate(() => switchTab('t-isolation'));
+  await expect(page.locator('#attachments')).toContainText('second-updated.json');
+  await expect(page.locator('#ctx-pop')).toContainText('SecondModelUpdated');
+});
+
+test('Fork 附件只渲染到对应分支', async ({ page }) => {
+  await page.evaluate(() => {
+    const zone = document.createElement('div');
+    zone.className = 'fork-zone';
+    zone.dataset.conv = 'fork-isolation';
+    zone.innerHTML = '<div class="fork-msgs"></div><div class="fork-attachments"></div>';
+    document.body.appendChild(zone);
+    makeForkState('fork-isolation', zone.querySelector('.fork-msgs'));
+    onSidecar({ type: 'attachments', convId: 'main', files: ['main-only.png'] });
+    onSidecar({ type: 'attachments', convId: 'fork-isolation', files: ['fork-only.mat'] });
+  });
+
+  await expect(page.locator('#attachments')).toContainText('main-only.png');
+  await expect(page.locator('#attachments')).not.toContainText('fork-only.mat');
+  await expect(page.locator('.fork-zone[data-conv="fork-isolation"] .fork-attachments')).toContainText('fork-only.mat');
+  await expect(page.locator('.fork-zone[data-conv="fork-isolation"] .fork-attachments')).not.toContainText('main-only.png');
+});

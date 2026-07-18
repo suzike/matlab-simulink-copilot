@@ -23,7 +23,7 @@
   <text x="180" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">停靠 UI · 多标签 · Fork · 无 CDN</text>
   <rect x="320" y="134" width="240" height="66" rx="8" fill="#2c2440" stroke="#473a63"/>
   <text x="440" y="160" fill="#ece8f6" font-size="13" font-weight="600" text-anchor="middle">Context + ConfigByConv</text>
-  <text x="440" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">工程索引 · 每会话配置 · 一次性附件</text>
+  <text x="440" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">工程索引 · 每会话配置/快照 · 隔离附件</text>
   <rect x="580" y="134" width="284" height="66" rx="8" fill="#2c2440" stroke="#473a63"/>
   <text x="722" y="160" fill="#ece8f6" font-size="13" font-weight="600" text-anchor="middle">确定性 MBD 工具链</text>
   <text x="722" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">规范/覆盖/diff/追溯/文档 · 本地门禁</text>

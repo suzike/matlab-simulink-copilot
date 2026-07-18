@@ -7,6 +7,24 @@
 
 ---
 
+## [0.10.2] — 2026-07-18
+
+本补丁版本完成标签页与 Fork 的上下文、附件资源隔离，避免后台事件和分支粘贴污染当前会话。
+
+### 变更（Changed）
+
+- MATLAB `Panel` 使用 `ContextByConv` 与 `AttachmentsByConv` 保存每会话快照和待发送附件。
+- 上下文、附件、移除、清空、消费、关闭和临时文件清理均显式携带并使用目标 `convId`。
+- UI 标签状态保存独立上下文与附件；切换标签时恢复目标状态并请求刷新，后台事件不覆盖当前页。
+- Fork 输入框粘贴和附件列表固定绑定对应分支会话。
+
+### 验证（Verified）
+
+- Sidecar：65 项 Node 测试全部通过。
+- UI：8 项 Playwright 用例通过，覆盖桌面/窄屏、明暗主题、标签隔离和 Fork 附件隔离。
+- MATLAB：R2025b `checkcode`、类加载及真实 `Panel` 双会话附件消费/临时文件清理/上下文缓存测试通过。
+- 发布包：`MATLAB-Copilot.mltbx` 使用 `ToolboxVersion=0.10.2` 构建并执行最终包验收。
+
 ## [0.10.1] — 2026-07-18
 
 本补丁版本建立可重复执行的发布质量门禁，重点防止安装包内容漂移和 UI 文字越界回归。
@@ -179,6 +197,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.10.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.2
 [0.10.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.1
 [0.10.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.0
 [0.9.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.9.0

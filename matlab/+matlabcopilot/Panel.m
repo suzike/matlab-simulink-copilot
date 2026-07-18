@@ -13,7 +13,7 @@ classdef Panel < handle
         PendingInsertText string = ""  % 插入模式下累积助手文本(Codex result.text 为空时兜底)
         PendingDoc                     % 暂存的活动文档
         PendingSel                     % 暂存的光标 Selection
-        Attachments cell = {}          % 本地文件上下文:{struct('name','content')}
+        AttachmentsByConv              % containers.Map:每个会话待发送附件 cell
         PendingFind logical = false    % 「查找模块」:等 agent 返回路径后原生高亮
         PendingFindConv string = ""   % 发起查找请求的会话
         PendingFindModel string = ""  % 发起查找时的模型，避免切换模型后误判工具路径
@@ -25,6 +25,7 @@ classdef Panel < handle
         LocalPermPend                  % containers.Map:本地确定性写/运行动作的待确认回调
         TempFilesByConv                % containers.Map:已发送、待本轮结束后删除的临时附件
         ConfigByConv                   % containers.Map:每个会话的完整后端配置，约束本地动作并初始化 sidecar
+        ContextByConv                  % containers.Map:每个会话最后一次实时上下文快照
         NightTimer                     % 夜间批量任务定时器(timer;空=未排程)
         NightConv string = ""         % 定时器归属会话，关闭标签页时同步撤销
     end
@@ -47,6 +48,8 @@ classdef Panel < handle
             obj.LocalPermPend = containers.Map('KeyType', 'char', 'ValueType', 'any');
             obj.TempFilesByConv = containers.Map('KeyType', 'char', 'ValueType', 'any');
             obj.ConfigByConv = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.AttachmentsByConv = containers.Map('KeyType', 'char', 'ValueType', 'any');
+            obj.ContextByConv = containers.Map('KeyType', 'char', 'ValueType', 'any');
 
             sidecarDir = fullfile(obj.RootDir, "sidecar");
             obj.Bridge = matlabcopilot.Bridge(sidecarDir, opts.Cwd, ...
@@ -62,11 +65,13 @@ classdef Panel < handle
             end
         end
 
-        function pushContext(obj)
+        function pushContext(obj, convId)
             % 把最新上下文快照推给 UI 顶栏(在发送消息时调用,保证顶栏是当前状态)。
             try
                 if isempty(obj.HTML) || ~isvalid(obj.HTML); return; end
-                obj.pushToUi(struct('type', "context", 'context', matlabcopilot.Context.snapshot()));
+                cc = char(string(convId));
+                ctx = obj.contextForConv(cc, true);
+                obj.pushToUi(struct('type', "context", 'convId', cc, 'context', ctx));
             catch
             end
         end
@@ -136,8 +141,10 @@ classdef Panel < handle
                     obj.clearPendingModes(closingConv);
                     if obj.NightConv == string(closingConv); obj.cancelNight(false); end
                     obj.clearLocalPermissions(closingConv);
+                    obj.clearPendingAttachments(closingConv);
                     obj.cleanupTempFiles(closingConv);
                     if ~isempty(obj.ConfigByConv) && isKey(obj.ConfigByConv, closingConv); remove(obj.ConfigByConv, closingConv); end
+                    if ~isempty(obj.ContextByConv) && isKey(obj.ContextByConv, closingConv); remove(obj.ContextByConv, closingConv); end
                     obj.Bridge.send(struct('type', "close_conv", ...
                         'convId', closingConv));
                 case "diagnose_error"
@@ -193,7 +200,7 @@ classdef Panel < handle
                 case "ask_at_cursor"
                     obj.handleAskAtCursor(data);
                 case "request_context"
-                    obj.pushToUi(struct('type', "context", 'context', matlabcopilot.Context.snapshot()));
+                    obj.pushContext(obj.ActiveConv);
                 case "request_theme"
                     obj.pushToUi(struct('type', "theme", 'mode', matlabcopilot.Panel.detectTheme()));
                 case "set_config"
@@ -207,21 +214,23 @@ classdef Panel < handle
                         'args', getfieldor(data, 'args', ""), ...
                         'convId', char(obj.ActiveConv), ...
                         'config', getfieldor(data, 'config', struct()), ...
-                        'context', matlabcopilot.Context.snapshot()));
+                        'context', obj.contextForConv(obj.ActiveConv, true)));
                 case "attach_file"
                     obj.handleAttachFile();
                 case "attach_image"
                     obj.handleAttachImage(data);
                 case "clear_attachments"
-                    obj.clearPendingAttachments();
-                    obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+                    obj.clearPendingAttachments(obj.ActiveConv);
+                    obj.pushAttachments(obj.ActiveConv);
                 case "remove_attachment"
                     idx = double(getfieldor(data, 'index', -1)) + 1; % JS 0-based → MATLAB 1-based
-                    if idx >= 1 && idx <= numel(obj.Attachments)
-                        obj.deleteTempAttachment(obj.Attachments{idx});
-                        obj.Attachments(idx) = [];
+                    attachments = obj.attachmentsForConv(obj.ActiveConv);
+                    if idx >= 1 && idx <= numel(attachments)
+                        obj.deleteTempAttachment(attachments{idx});
+                        attachments(idx) = [];
+                        obj.setAttachmentsForConv(obj.ActiveConv, attachments);
                     end
-                    obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
+                    obj.pushAttachments(obj.ActiveConv);
                 otherwise
             end
             catch err
@@ -237,6 +246,7 @@ classdef Panel < handle
         function handleAttachFile(obj)
             % 选本地文件作上下文,支持任意文件类型(默认显示所有文件)。
             % 图片 → 走视觉(给路径,agent 用 Read 读图);其余 → 读为文本(超大截断)。
+            cc = char(obj.ActiveConv);
             [f, p] = uigetfile({'*.*', '所有文件 (*.*)'; ...
                 '*.m;*.mlx;*.txt;*.md;*.csv;*.json;*.xml;*.slx;*.png;*.jpg', '常用文件'}, ...
                 '选择要作为上下文的文件');
@@ -244,8 +254,8 @@ classdef Panel < handle
             full = fullfile(p, f);
             [~, ~, ext] = fileparts(f);
             if any(strcmpi(ext, {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tif', '.tiff', '.webp'}))
-                obj.Attachments{end+1} = struct('name', string(f), 'content', "", ...
-                    'path', string(full), 'isImage', true, 'isTemp', false);
+                obj.appendAttachment(cc, struct('name', string(f), 'content', "", ...
+                    'path', string(full), 'isImage', true, 'isTemp', false));
             else
                 content = "";
                 try
@@ -257,15 +267,16 @@ classdef Panel < handle
                 catch
                     content = "(无法读取为文本)";
                 end
-                obj.Attachments{end+1} = struct('name', string(f), 'content', content, ...
-                    'path', "", 'isImage', false, 'isTemp', false);
+                obj.appendAttachment(cc, struct('name', string(f), 'content', content, ...
+                    'path', "", 'isImage', false, 'isTemp', false));
             end
-            obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
+            obj.pushAttachments(cc);
         end
 
         function handleAttachImage(obj, data)
             % 接收 UI 粘贴的图片(base64 data URL),写临时 PNG,作图片附件(走视觉)。
             tmp = "";
+            cc = char(obj.ActiveConv);
             try
                 dataUrl = string(getfieldor(data, 'dataUrl', ""));
                 if strlength(dataUrl) == 0; return; end
@@ -279,48 +290,100 @@ classdef Panel < handle
                 fwrite(fid, bytes, 'uint8');
                 clear cleaner
                 name = string(getfieldor(data, 'name', "粘贴图片.png"));
-                obj.Attachments{end+1} = struct('name', name, 'content', "", ...
-                    'path', tmp, 'isImage', true, 'isTemp', true);
-                obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
+                obj.appendAttachment(cc, struct('name', name, 'content', "", ...
+                    'path', tmp, 'isImage', true, 'isTemp', true));
+                obj.pushAttachments(cc);
             catch
                 if strlength(tmp) > 0 && isfile(tmp); try, delete(tmp); catch, end; end
             end
         end
 
-        function names = attachmentNames(obj)
-            names = strings(1, numel(obj.Attachments));
-            for i = 1:numel(obj.Attachments); names(i) = obj.Attachments{i}.name; end
+        function attachments = attachmentsForConv(obj, convId)
+            key = char(string(convId));
+            attachments = {};
+            if ~isempty(obj.AttachmentsByConv) && isa(obj.AttachmentsByConv, 'containers.Map') && isKey(obj.AttachmentsByConv, key)
+                attachments = obj.AttachmentsByConv(key);
+            end
         end
 
-        function ctx = contextWithAttachments(obj)
-            ctx = matlabcopilot.Context.snapshot();
-            if ~isempty(obj.Attachments)
-                ctx.attachments = obj.Attachments;
+        function setAttachmentsForConv(obj, convId, attachments)
+            key = char(string(convId));
+            if isempty(attachments)
+                if isKey(obj.AttachmentsByConv, key); remove(obj.AttachmentsByConv, key); end
+            else
+                obj.AttachmentsByConv(key) = attachments;
+            end
+        end
+
+        function appendAttachment(obj, convId, attachment)
+            attachments = obj.attachmentsForConv(convId);
+            attachments{end+1} = attachment;
+            obj.setAttachmentsForConv(convId, attachments);
+        end
+
+        function names = attachmentNames(obj, convId)
+            attachments = obj.attachmentsForConv(convId);
+            names = strings(1, numel(attachments));
+            for i = 1:numel(attachments); names(i) = attachments{i}.name; end
+        end
+
+        function pushAttachments(obj, convId)
+            cc = char(string(convId));
+            obj.pushToUi(struct('type', "attachments", 'convId', cc, ...
+                'files', {obj.attachmentNames(cc)}));
+        end
+
+        function ctx = contextForConv(obj, convId, refresh)
+            key = char(string(convId));
+            if refresh || ~isKey(obj.ContextByConv, key)
+                ctx = matlabcopilot.Context.snapshot();
+                obj.ContextByConv(key) = ctx;
+            else
+                ctx = obj.ContextByConv(key);
+            end
+        end
+
+        function ctx = contextWithAttachments(obj, convId)
+            ctx = obj.contextForConv(convId, true);
+            attachments = obj.attachmentsForConv(convId);
+            if ~isempty(attachments)
+                ctx.attachments = attachments;
             end
         end
 
         function consumeAttachments(obj, convId)
             % 已发送的临时文件保留到该会话本轮结束，确保后端有时间读取。
-            if isempty(obj.Attachments); return; end
             key = char(string(convId));
+            attachments = obj.attachmentsForConv(key);
+            if isempty(attachments); return; end
             files = {};
             if ~isempty(obj.TempFilesByConv) && isKey(obj.TempFilesByConv, key)
                 files = obj.TempFilesByConv(key);
             end
-            for i = 1:numel(obj.Attachments)
-                a = obj.Attachments{i};
+            for i = 1:numel(attachments)
+                a = attachments{i};
                 if isfield(a, 'isTemp') && logical(a.isTemp) && strlength(string(a.path)) > 0
                     files{end+1} = char(string(a.path)); %#ok<AGROW>
                 end
             end
             if ~isempty(files); obj.TempFilesByConv(key) = unique(files, 'stable'); end
-            obj.Attachments = {};
-            obj.pushToUi(struct('type', "attachments", 'files', {{}}));
+            obj.setAttachmentsForConv(key, {});
+            obj.pushAttachments(key);
         end
 
-        function clearPendingAttachments(obj)
-            for i = 1:numel(obj.Attachments); obj.deleteTempAttachment(obj.Attachments{i}); end
-            obj.Attachments = {};
+        function clearPendingAttachments(obj, convId)
+            target = string(convId);
+            if strlength(target) == 0
+                ks = keys(obj.AttachmentsByConv);
+            else
+                ks = {char(target)};
+            end
+            for k = 1:numel(ks)
+                key = ks{k};
+                attachments = obj.attachmentsForConv(key);
+                for i = 1:numel(attachments); obj.deleteTempAttachment(attachments{i}); end
+                if isKey(obj.AttachmentsByConv, key); remove(obj.AttachmentsByConv, key); end
+            end
         end
 
         function deleteTempAttachment(~, a)
@@ -505,9 +568,9 @@ classdef Panel < handle
         end
 
         function handleUserMessage(obj, data)
-            ctx = obj.contextWithAttachments();
             cc = char(obj.ActiveConv);
-            obj.pushContext();  % 顺手刷新顶栏,保证显示当前状态
+            ctx = obj.contextWithAttachments(cc);
+            obj.pushContext(cc);  % 顺手刷新当前标签顶栏,不覆盖其他会话快照
             % 经验库自动召回:新消息与既有沉淀条目指纹匹配 → 附进上下文(命中才带)。
             try
                 hits = matlabcopilot.KnowledgeBase.recall(obj.Bridge.Cwd, ...
@@ -544,7 +607,7 @@ classdef Panel < handle
             else
                 obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "未捕获到结构化诊断,基于当前上下文分析…"));
             end
-            ctx = matlabcopilot.Context.snapshot();
+            ctx = obj.contextForConv(cc, true);
             text = obj.diagnosePrompt(items);
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', text, ...
@@ -586,7 +649,7 @@ classdef Panel < handle
             cc = char(obj.ActiveConv);
             obj.pushToUi(struct('type', "user_echo", 'convId', cc, 'text', "⚙ 运行任务流: " + string(model) + tag));
             text = matlabcopilot.Tasks.prompt(model, caps);
-            ctx = matlabcopilot.Context.snapshot();
+            ctx = obj.contextForConv(cc, true);
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', text, ...
                 'config', obj.convConfig(cc), 'context', ctx));
@@ -595,10 +658,10 @@ classdef Panel < handle
         function handleSelfHeal(obj)
             % 「自愈运行」:run → 抓错 → 修 → 重跑,最多迭代 3 次直到通过。
             % Agent 按系统提示里的「自愈验证环」流程自主驱动,每轮标注 [验证 N/3]。
-            ctx = matlabcopilot.Context.snapshot();
+            cc = char(obj.ActiveConv);
+            ctx = obj.contextForConv(cc, true);
             model = '';
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
-            cc = char(obj.ActiveConv);
             if isempty(model)
                 prompt = ['请检查当前 MATLAB 工作区或最近报错中的代码。' ...
                           '若遇到错误,分析根因并修复,然后重新运行,最多迭代 3 次直到通过。' ...
@@ -611,7 +674,8 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+                'config', obj.convConfig(cc), 'context', ctx, ...
+                'attachments', {obj.attachmentsForConv(cc)}));
             obj.consumeAttachments(cc);
         end
 
@@ -625,6 +689,7 @@ classdef Panel < handle
                 return;
             end
             try
+                cc = char(obj.ActiveConv);
                 tmpFile = string(tempname) + ".png";
                 % print -sModelName 把 Simulink 画布导出为 PNG(-r96 适合屏幕分辨率)
                 print(['-s' model], '-dpng', '-r96', char(tmpFile));
@@ -632,11 +697,10 @@ classdef Panel < handle
                     error('截图文件未生成');
                 end
                 % 直接作为路径型图片附件加入(与手动附件共用同一通道,发完即清)
-                obj.Attachments{end+1} = struct('name', string(model) + ".png", ...
-                    'content', "", 'path', tmpFile, 'isImage', true, 'isTemp', true);
-                obj.pushToUi(struct('type', "attachments", 'files', {obj.attachmentNames()}));
-                ctx  = obj.contextWithAttachments();
-                cc   = char(obj.ActiveConv);
+                obj.appendAttachment(cc, struct('name', string(model) + ".png", ...
+                    'content', "", 'path', tmpFile, 'isImage', true, 'isTemp', true));
+                obj.pushAttachments(cc);
+                ctx = obj.contextWithAttachments(cc);
                 prompt = sprintf(['请先用 Read 工具查看附加的 Simulink 模型截图(%s.png),再系统分析:' ...
                     '①信号流与整体架构;②命名规范/未命名 block;' ...
                     '③未连接端口或悬空信号;④可疑参数取值;⑤布局可读性问题。' ...
@@ -647,9 +711,10 @@ classdef Panel < handle
                 obj.consumeAttachments(cc);
             catch err
                 % 用 error 类型让 UI 解除 busy(status 不会);并清掉可能已加入的陈旧截图附件。
-                obj.clearPendingAttachments();
-                obj.pushToUi(struct('type', "attachments", 'files', {{}}));
-                obj.pushToUi(struct('type', "error", 'convId', char(obj.ActiveConv), ...
+                cc = char(obj.ActiveConv);
+                obj.clearPendingAttachments(cc);
+                obj.pushAttachments(cc);
+                obj.pushToUi(struct('type', "error", 'convId', cc, ...
                     'message', '模型截图失败: ' + string(err.message)));
             end
         end
@@ -739,8 +804,8 @@ classdef Panel < handle
 
         function aiRequirements(obj)
             % AI 反推路径(无需求文件时的兜底,仅辅助起草,非真实追溯)。
-            ctx = matlabcopilot.Context.snapshot();
             cc  = char(obj.ActiveConv);
+            ctx = obj.contextForConv(cc, true);
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
 
             % 可靠检测 Requirements Toolbox:只用 license,不用 exist('slreq.load','file')
@@ -776,15 +841,16 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+                'config', obj.convConfig(cc), 'context', ctx, ...
+                'attachments', {obj.attachmentsForConv(cc)}));
             obj.consumeAttachments(cc);
         end
 
         function handleCodeGenReview(obj)
             % 「代码评审」:MISRA-C 风险 + 函数复杂度 + 向量化机会;
             %              有 Embedded Coder 时补充代码规模与 RAM/ROM 估算。
-            ctx = matlabcopilot.Context.snapshot();
             cc  = char(obj.ActiveConv);
+            ctx = obj.contextForConv(cc, true);
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
 
             % 可靠检测 Embedded Coder:只用 license
@@ -826,7 +892,8 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+                'config', obj.convConfig(cc), 'context', ctx, ...
+                'attachments', {obj.attachmentsForConv(cc)}));
             obj.consumeAttachments(cc);
         end
 
@@ -904,8 +971,8 @@ classdef Panel < handle
 
         function aiTestOrchestrate(obj)
             % AI 编排路径(无现成 .mldatx 用例时):生成 → 运行 → 汇总。
-            ctx = matlabcopilot.Context.snapshot();
             cc  = char(obj.ActiveConv);
+            ctx = obj.contextForConv(cc, true);
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
             nl = newline;
             if isempty(model)
@@ -925,7 +992,8 @@ classdef Panel < handle
             end
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+                'config', obj.convConfig(cc), 'context', ctx, ...
+                'attachments', {obj.attachmentsForConv(cc)}));
             obj.consumeAttachments(cc);
         end
 
@@ -933,8 +1001,8 @@ classdef Panel < handle
             % 「批量编辑」:用户用自然语言描述批改 → agent 定位所有目标 block → 逐个 model_edit。
             % 每处改动仍走权限确认(diff 可逐个核对),绝不一次性盲改。
             query = string(getfieldor(data, 'query', ""));
-            ctx = matlabcopilot.Context.snapshot();
             cc  = char(obj.ActiveConv);
+            ctx = obj.contextForConv(cc, true);
             model = char(matlabcopilot.Context.currentModel());   % 与查找/任务流一致:当前关注模型
             if isempty(model)
                 obj.pushToUi(struct('type', "error", 'convId', cc, ...
@@ -952,7 +1020,8 @@ classdef Panel < handle
                 '注意:严格按需求范围操作,不要顺手改无关 block;若某个目标不确定是否该改,先问我。'];
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'config', obj.convConfig(cc), 'context', ctx, 'attachments', {obj.Attachments}));
+                'config', obj.convConfig(cc), 'context', ctx, ...
+                'attachments', {obj.attachmentsForConv(cc)}));
             obj.consumeAttachments(cc);
         end
 
@@ -985,7 +1054,7 @@ classdef Panel < handle
                 "【硬性要求】回答的最后一行必须原样输出高亮标记,格式严格为:<<HILITE: 模块完整路径>>" + newline + ...
                 "例如:<<HILITE: " + string(model) + "/Sum>> 。路径用模型里的真实完整路径,不要加引号或反引号。" + ...
                 "这一行用于在画布高亮,用户看不到。只有在模型里确实不存在匹配模块时才省略此行。";
-            ctx = obj.contextWithAttachments();
+            ctx = obj.contextWithAttachments(cc);
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', text, ...
                 'config', obj.convConfig(cc), 'context', ctx));
@@ -1058,7 +1127,7 @@ classdef Panel < handle
             text = "请解释当前 Simulink 模型中选中的模块:" + newline + list + newline + ...
                 "用 model_read 读取这些模块的真实参数与端口,逐个说明:它的作用、关键参数取值、" + ...
                 "输入/输出信号与上下游连接,以及它在整个模型里扮演的角色。回答用简体中文。";
-            ctx = obj.contextWithAttachments();
+            ctx = obj.contextWithAttachments(cc);
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', text, ...
                 'config', obj.convConfig(cc), 'context', ctx));
@@ -1085,7 +1154,7 @@ classdef Panel < handle
             obj.PendingInsert = true;
             obj.PendingInsertConv = string(cc);
             obj.PendingInsertText = "";
-            ctx = matlabcopilot.Context.snapshot();
+            ctx = obj.contextForConv(cc, true);
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), ...
                 'text', getfieldor(data, 'text', ""), ...
@@ -1301,10 +1370,10 @@ classdef Panel < handle
                 '3. 搭 SIL 对比:Simulink Test 等价测试 或 NormalMode/SIL 两次 sim。' nl ...
                 '4. 运行并对比各输出信号:最大绝对误差 / 相对误差,给出逐信号表格。' nl ...
                 '5. 结论:误差是否在容差内(默认 1e-6,可指出更合理容差);超差信号定位可能原因(数据类型/优化选项)。'];
+            ctx = obj.contextWithAttachments(cc);
             obj.Bridge.send(struct('type', "user_message", 'convId', cc, ...
                 'id', char(matlab.lang.internal.uuid()), 'text', prompt, ...
-                'config', obj.convConfig(cc), 'context', matlabcopilot.Context.snapshot(), ...
-                'attachments', {obj.Attachments}));
+                'config', obj.convConfig(cc), 'context', ctx));
             obj.consumeAttachments(cc);
             obj.pushToUi(struct('type', "user_echo", 'convId', cc, 'text', "⚖ MIL vs SIL 一致性验证: " + string(model)));
         end
@@ -1465,7 +1534,7 @@ classdef Panel < handle
             try, if ~isempty(obj.Diag) && isvalid(obj.Diag); delete(obj.Diag); end, catch, end
             try, obj.clearPendingModes(""); catch, end
             try, obj.clearLocalPermissions(""); catch, end
-            try, obj.clearPendingAttachments(); obj.cleanupTempFiles(""); catch, end
+            try, obj.clearPendingAttachments(""); obj.cleanupTempFiles(""); catch, end
             try, obj.cancelNight(false); catch, end   % 面板关了,夜间定时器一并撤(防孤儿 timer)
             try, obj.Bridge.close(); catch, end
             try, delete(obj.Figure); catch, end
@@ -1475,7 +1544,7 @@ classdef Panel < handle
             try, if ~isempty(obj.Diag) && isvalid(obj.Diag); delete(obj.Diag); end, catch, end
             try, obj.clearPendingModes(""); catch, end
             try, obj.clearLocalPermissions(""); catch, end
-            try, obj.clearPendingAttachments(); obj.cleanupTempFiles(""); catch, end
+            try, obj.clearPendingAttachments(""); obj.cleanupTempFiles(""); catch, end
             try, obj.cancelNight(false); catch, end
             try, obj.Bridge.close(); catch, end
             try, delete(obj.Figure); catch, end

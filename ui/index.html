@@ -480,11 +480,15 @@
   #stop { background: #4a2326; color: #ffd5d5; border: 1px solid #6e3338; display: none; }
 
   /* ── 工具栏(后端/模型/思考/模式 + 附件/斜杠)── */
-  #attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
-  #attachments:empty { display: none; }
-  .att { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text);
+  #attachments, .fork-attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  #attachments:empty, .fork-attachments:empty { display: none; }
+  .fork-attachments { margin: 7px 0 0 28px; }
+  .att { display: inline-flex; align-items: center; gap: 5px; max-width: 190px; min-width: 0; white-space: nowrap;
+         font-size: 11px; color: var(--text);
          background: var(--surface3); border: 1px solid var(--border2); border-radius: 7px; padding: 2px 7px; }
+  .att-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .att .x { cursor: pointer; color: var(--faint); }
+  .att-clear { flex: 0 0 auto; cursor: pointer; }
   .toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
   .tb-spacer { flex: 1; }
   .tbtn { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--border2); background: var(--surface2);
@@ -698,7 +702,8 @@ function makeTabState(convId, name) {
   // 新 pane 插入后,把导航轨/预览卡移回 #panes 末尾,保证它们绘制在所有 pane 之上(否则后建的会话 pane 会盖住/挤偏预览卡)。
   if (navRail) { $('panes').appendChild(navRail); if (navPreview) $('panes').appendChild(navPreview); }
   const t = { convId, name, pane, bubbles: {}, thinks: {}, busy: false,
-              config: { backend: 'claude', model: null, effort: 'medium', mode: 'ask' }, auditLog: [], history: [], costUsd: 0, queue: [], pendingNotes: [] };
+              config: { backend: 'claude', model: null, effort: 'medium', mode: 'ask' }, auditLog: [], history: [], costUsd: 0, queue: [], pendingNotes: [],
+              context: null, contextKey: '', attachments: [] };
   tabs[convId] = t;
   return t;
 }
@@ -911,7 +916,7 @@ function copyText(text) {
   try { navigator.clipboard.writeText(String(text)); setStatus('已复制'); } catch (e) { setStatus('复制失败'); }
 }
 // 给一个输入框绑「粘贴图片(截图)→ base64 → attach_image」(主输入框和 Fork 输入框共用)。
-function bindImagePaste(el) {
+function bindImagePaste(el, convId) {
   el.addEventListener('paste', (e) => {
     const items = (e.clipboardData && e.clipboardData.items) || [];
     for (const it of items) {
@@ -922,7 +927,8 @@ function bindImagePaste(el) {
           const reader = new FileReader();
           reader.onload = () => {
             const ext = (it.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
-            toMatlab('attach_image', { name: '粘贴图片.' + ext, dataUrl: String(reader.result) });
+            const cid = typeof convId === 'function' ? convId() : (convId || activeConv);
+            toMatlab('attach_image', { name: '粘贴图片.' + ext, dataUrl: String(reader.result), convId: cid });
             setStatus('已粘贴图片,发送时一并带上');
           };
           reader.readAsDataURL(blob);
@@ -1107,7 +1113,8 @@ let forkSeq = 0;
 function makeForkState(convId, paneEl) {
   closedConvs.delete(convId);
   const t = { convId, name: convId, pane: paneEl, bubbles: {}, thinks: {}, busy: false,
-              config: Object.assign({}, activeTab() ? activeTab().config : {}), auditLog: [], isFork: true, sendBtn: null, queue: [], pendingNotes: [] };
+              config: Object.assign({}, activeTab() ? activeTab().config : {}), auditLog: [], isFork: true, sendBtn: null, queue: [], pendingNotes: [],
+              context: null, contextKey: '', attachments: [] };
   tabs[convId] = t;
   return t;
 }
@@ -1137,6 +1144,7 @@ function startFork(parent) {
   zone.className = 'fork-zone';
   zone.dataset.conv = convId;
   zone.innerHTML = '<div class="fork-head"><span>⑂ 分支讨论(基于本回答,独立上下文)</span><button class="fork-close" title="关闭分支">×</button></div><div class="fork-msgs"></div>' +
+    '<div class="fork-attachments"></div>' +
     '<div class="fork-input-row"><textarea class="fork-input" rows="1" placeholder="基于这条回答继续提需求…(Enter 发送)"></textarea><button class="fork-send">发送</button></div>';
   parent.el.appendChild(zone);
   const fs = makeForkState(convId, zone.querySelector('.fork-msgs'));
@@ -1148,7 +1156,7 @@ function startFork(parent) {
   const doSend = () => {
     const text = inp.value.trim();
     if (fs.busy) return;
-    if (!text && !attachCount) return;        // 无文本也无附件才拦(支持只发图)
+    if (!text && !attachmentCount(convId)) return;        // 无文本也无该分支附件才拦(支持只发图)
     inp.value = ''; inp.style.height = 'auto';
     useRender(convId);
     addMsg('user', renderPlain(text || '（见附件）'));   // 分支里的用户气泡
@@ -1162,7 +1170,7 @@ function startFork(parent) {
   btn.onclick = doSend;
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } });
   inp.addEventListener('input', (e) => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 80) + 'px'; });
-  bindImagePaste(inp);   // Fork 输入框也支持粘贴图片
+  bindImagePaste(inp, convId);   // Fork 图片固定归属该分支，不进入父标签附件
   inp.focus(); scrollDown();
 }
 
@@ -1198,13 +1206,11 @@ function classifyTool(name) {
 // ── 处理 sidecar → UI 事件 ──────────────────────────────────────────────────
 function onSidecar(msg) {
   if (!msg || !msg.type) return;
-  // 全局事件(不属于某个标签页):能力/上下文/主题/附件。
+  // 全局事件(不属于某个标签页):能力和主题。
   switch (msg.type) {
     case 'ready': setStatus('已就绪'); $('sdot').className = 'sdot live'; return;
-    case 'context': renderContext(msg.context); return;
     case 'theme': if (themeChoice === 'auto') paintTheme(msg.mode === 'light' ? 'light' : 'dark'); return;
     case 'capabilities': applyCaps(msg); return;
-    case 'attachments': renderAttachments(msg.files); return;
   }
   // 标签页相关事件:把渲染指针指向该会话的 pane,状态/busy 只在它是当前活动标签时影响顶栏。
   const cid = msg.convId || 'main';
@@ -1212,6 +1218,22 @@ function onSidecar(msg) {
   useRender(cid);
   const onActive = (cid === activeConv);
   switch (msg.type) {
+    case 'context': {
+      const t = tabs[cid];
+      if (t) {
+        t.context = msg.context || {};
+        if (onActive && !t.isFork) renderContext(t.context, t);
+      }
+      break;
+    }
+    case 'attachments': {
+      const t = tabs[cid];
+      if (t) {
+        t.attachments = toArr(msg.files).map(String);
+        renderAttachmentsForTab(t);
+      }
+      break;
+    }
     case 'status': if (onActive) setStatus(msg.text === 'thinking' ? '思考中…' : (msg.text || '')); if (msg.text === 'thinking') setBusy(true, cid); break;
     case 'thinking_start': ensureThink(msg.id); if (onActive) setStatus('思考中…'); break;
     case 'thinking_delta': { const t = ensureThink(msg.id); t.raw += msg.text || ''; t.body.innerHTML = renderMd(t.raw); scrollDown(); break; }
@@ -1820,9 +1842,14 @@ function renderAudit() {
     (auditLog.length ? rows : '<div class="audit-empty">本会话暂无破坏性操作</div>');
 }
 
-let lastCtxKey = '';
-function renderContext(ctx) {
+function clearContextDisplay() {
+  $('ctx-count').textContent = '0';
+  $('ctx-chip').title = '暂无上下文';
+  $('ctx-pop').innerHTML = '<div class="cp-title">当前上下文 · 0 项</div><div class="ctx-row"><span>无可用上下文</span></div>';
+}
+function renderContext(ctx, tab) {
   ctx = ctx || {};
+  tab = tab || activeTab();
   ensureProjectKey(ctx);          // 首次拿到上下文 → 定项目 key 并恢复历史
   const af = ctx.activeFile || {};
   const model = ctx.currentModel || '';
@@ -1838,8 +1865,8 @@ function renderContext(ctx) {
 
   // 仅内容变化时闪一下图标。
   const key = JSON.stringify([af.path, af.line, model, sub, blocks, vars.length, !!ctx.lastError, upaths.length]);
-  if (key !== lastCtxKey) {
-    lastCtxKey = key;
+  if (!tab || key !== tab.contextKey) {
+    if (tab) tab.contextKey = key;
     const chip = $('ctx-chip'); chip.classList.remove('flash'); void chip.offsetWidth; chip.classList.add('flash');
   }
 
@@ -1958,7 +1985,7 @@ function interruptCurrent() {
 }
 function sendMessage() {
   const text = $('input').value.trim();
-  if (!text && !curNotes().length && !attachCount) return;   // 无文本、无便签、无附件才拦
+  if (!text && !curNotes().length && !attachmentCount(activeConv)) return;   // 无文本、无便签、无当前标签附件才拦
   const finalText = buildFinalText();
   if (text) lastSentMsg = text;
   const t = activeTab();
@@ -2192,7 +2219,7 @@ $('input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 $('input').addEventListener('input', (e) => { const t = e.target; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 150) + 'px'; });
-bindImagePaste($('input'));   // 主输入框粘贴图片(截图)→ 附件
+bindImagePaste($('input'), () => activeConv);   // 主输入框图片归属当前活动标签
 
 // ── 悬停 2 秒弹出功能说明气泡(对所有带 data-tip 的元素生效)─────────────────
 (function initTips() {
@@ -2273,16 +2300,28 @@ function reflectConfig() {
 }
 function setConfig(partial) { Object.assign(config, partial); toMatlab('set_config', { config: partial }); reflectConfig(); }
 
-// 附件 chips
-let attachCount = 0;   // 当前附件数(供「无文本也能发」判断)
-function renderAttachments(files) {
+// 附件 chips:每个标签/Fork 各自持有列表，MATLAB 事件按 convId 更新目标会话。
+function attachmentCount(convId) {
+  const t = tabs[convId || activeConv];
+  return t && Array.isArray(t.attachments) ? t.attachments.length : 0;
+}
+function renderAttachmentList(wrap, files, convId) {
+  if (!wrap) return;
   files = Array.isArray(files) ? files : (files ? [files] : []);
-  attachCount = files.length;
-  const wrap = $('attachments');
-  wrap.innerHTML = files.map((f, i) => '<span class="att">📎 ' + escapeHtml(f) + '<span class="x" data-rm="' + i + '">✕</span></span>').join('') +
-    (files.length > 1 ? '<span class="att" id="att-clear">清除全部</span>' : '');
-  wrap.querySelectorAll('[data-rm]').forEach((el) => el.onclick = () => toMatlab('remove_attachment', { index: +el.dataset.rm }));
-  if ($('att-clear')) $('att-clear').onclick = () => toMatlab('clear_attachments', {});
+  wrap.innerHTML = files.map((f, i) => '<span class="att"><span class="att-name">📎 ' + escapeHtml(f) + '</span><span class="x" data-rm="' + i + '">✕</span></span>').join('') +
+    (files.length > 1 ? '<span class="att att-clear">清除全部</span>' : '');
+  wrap.querySelectorAll('[data-rm]').forEach((el) => el.onclick = () => toMatlab('remove_attachment', { index: +el.dataset.rm, convId }));
+  const clear = wrap.querySelector('.att-clear');
+  if (clear) clear.onclick = () => toMatlab('clear_attachments', { convId });
+}
+function renderAttachmentsForTab(t) {
+  if (!t) return;
+  if (t.isFork) {
+    const zone = t.pane && t.pane.closest('.fork-zone');
+    renderAttachmentList(zone && zone.querySelector('.fork-attachments'), t.attachments, t.convId);
+  } else if (t.convId === activeConv) {
+    renderAttachmentList($('attachments'), t.attachments, t.convId);
+  }
 }
 
 // 弹窗
@@ -2508,9 +2547,12 @@ function switchTab(convId) {
   $('sdot').className = 'sdot ' + (t.busy ? 'busy' : 'live');
   renderQueuePanel();   // 队列是 per-tab,切换时刷新右下角显示
   renderNotesArea();    // 便签也是 per-tab,切换时刷新输入框上方显示
+  renderAttachmentsForTab(t);
+  if (t.context) renderContext(t.context, t); else clearContextDisplay();
   renderCostBar();   // 成本条切换到当前标签的累计值
   renderTabs(); scrollDown();
   scheduleNavRail();   // 导航轨 per-tab,切换时按当前 pane 重建
+  if (!t.isFork) toMatlab('request_context', { convId: t.convId });
 }
 function newTab() {
   const convId = 't' + (++tabSeq);

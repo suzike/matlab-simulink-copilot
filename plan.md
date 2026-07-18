@@ -24,6 +24,13 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.10.2 每会话上下文与附件隔离
+
+- MATLAB `Panel` 使用 `ContextByConv` / `AttachmentsByConv`，上下文快照、附件消费和临时文件清理按 `convId` 隔离。
+- UI 的标签与 Fork 状态保存各自上下文和附件；后台事件不覆盖当前标签，Fork 粘贴固定绑定分支。
+- 关闭会话只回收目标会话资源；切换标签恢复其最近快照并请求当前 MATLAB 状态刷新。
+- 验证基线：sidecar **65 tests / 11 files**；Playwright **8 tests**；MATLAB R2025b 类加载与真实双会话资源隔离测试。
+
 ### v0.10.1 发布质量门禁
 
 - 统一 Release 静态检查：版本、运行时依赖、Git/MLTBX 清单、UTF-8、UI 语法、打包排除项与 SHA-256。
@@ -141,10 +148,9 @@
 ### 未做(暂缓)
 1. **AppContainer 真侧栏**:未公开 API,脆弱;保持 docking 兜底。
 2. **Reset 真·后端回滚**:目前 Reset 是 UI 撤回 + 作为新一轮重发(后端历史仍留那轮);真回滚需 resetSession+重放或按 /compact 重播种,代价大。
-3. **每标签页独立上下文/附件**:目前上下文(MATLAB 实时状态)与附件是面板级共享,多标签共用;如需每页独立可后续做。
-4. **右键菜单**:R2025b 上下文菜单需用 R2026a 扩展点 API 重做(现用面板按钮兜底)。
-5. **离线 LLM(Ollama)**:仍未实现;当前只支持 Claude Code / Codex 云端后端。
-6. **离线 docroot 文档索引**:用户明确不做(在线 WebFetch + 本地 `help` 兜底已够),暂不实现。
+3. **右键菜单**:R2025b 上下文菜单需用 R2026a 扩展点 API 重做(现用面板按钮兜底)。
+4. **离线 LLM(Ollama)**:仍未实现;当前只支持 Claude Code / Codex 云端后端。
+5. **离线 docroot 文档索引**:用户明确不做(在线 WebFetch + 本地 `help` 兜底已够),暂不实现。
 
 ## 5. 验证方式
 
