@@ -29,7 +29,7 @@ async function layoutProblems(page) {
       const rect = el.getBoundingClientRect();
       return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
     };
-    const clippedButtons = [...document.querySelectorAll('.quick button, .inputrow button, header button')]
+    const clippedButtons = [...document.querySelectorAll('header button, footer button')]
       .filter(visible)
       .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)
       .map((el) => ({ id: el.id, text: el.textContent.trim(), client: [el.clientWidth, el.clientHeight], scroll: [el.scrollWidth, el.scrollHeight] }));
@@ -60,6 +60,92 @@ test('亮色和暗色主题均可正常渲染', async ({ page }) => {
     const problems = await layoutProblems(page);
     expect(problems.document[0], `${theme}: ${JSON.stringify(problems, null, 2)}`).toBeLessThanOrEqual(problems.viewport[0] + 1);
   }
+});
+
+test('模型列表为空时不显示孤立下拉箭头', async ({ page }) => {
+  await expect(page.locator('#tb-model')).toBeHidden();
+  await expect(page.locator('#tb-model-div')).toBeHidden();
+
+  await page.evaluate(() => applyCaps({
+    models: { claude: ['claude-sonnet'], codex: ['gpt-5'] },
+    current: { backend: 'claude', model: 'claude-sonnet', effort: 'medium', mode: 'ask' },
+  }));
+  await expect(page.locator('#tb-model')).toBeVisible();
+  await expect(page.locator('#tb-model-div')).toBeVisible();
+  await expect(page.locator('#tb-model')).toHaveValue('claude-sonnet');
+});
+
+test('快捷功能三态切换不改变输入框位置', async ({ page }) => {
+  const inputBottom = async () => page.locator('.inputrow').evaluate((el) => Math.round(el.getBoundingClientRect().bottom));
+  const baseline = await inputBottom();
+
+  await page.locator('#quick-mode-collapsed').click();
+  await expect(page.locator('#quick-shell')).toHaveAttribute('data-mode', 'collapsed');
+  await expect(page.locator('.quick')).toBeHidden();
+  expect(await inputBottom()).toBe(baseline);
+
+  await page.locator('#quick-mode-single').click();
+  await expect(page.locator('#quick-shell')).toHaveAttribute('data-mode', 'single');
+  await expect(page.locator('.quick')).toBeVisible();
+  expect(await page.locator('.quick').evaluate((el) => getComputedStyle(el).flexWrap)).toBe('nowrap');
+  expect(await inputBottom()).toBe(baseline);
+
+  await page.locator('#quick-mode-expanded').click();
+  await expect(page.locator('#quick-shell')).toHaveAttribute('data-mode', 'expanded');
+  expect(await page.locator('.quick').evaluate((el) => getComputedStyle(el).flexWrap)).toBe('wrap');
+  expect(await inputBottom()).toBe(baseline);
+  await expect(page.locator('#quick-mode-expanded')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('单行模式隐藏滚动条并用鼠标滚轮横向浏览', async ({ page }) => {
+  await page.locator('#quick-mode-single').click();
+  const quick = page.locator('.quick');
+  const metrics = await quick.evaluate((el) => ({
+    clientWidth: el.clientWidth,
+    scrollWidth: el.scrollWidth,
+    scrollbarWidth: getComputedStyle(el).scrollbarWidth,
+  }));
+  expect(metrics.scrollWidth).toBeGreaterThan(metrics.clientWidth);
+  expect(metrics.scrollbarWidth).toBe('none');
+  await quick.hover();
+  await page.mouse.wheel(0, 320);
+  await expect.poll(() => quick.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await expect(page.locator('#quick-prev')).toBeEnabled();
+});
+
+test('快捷按钮悬停时上边缘不被裁切', async ({ page }) => {
+  await page.locator('#quick-mode-single').click();
+  const button = page.locator('#btn-test');
+  await button.hover();
+  const bounds = await page.evaluate(() => {
+    const quick = document.querySelector('.quick').getBoundingClientRect();
+    const target = document.querySelector('#btn-test').getBoundingClientRect();
+    return { quickTop: quick.top, quickBottom: quick.bottom, buttonTop: target.top, buttonBottom: target.bottom };
+  });
+  expect(bounds.buttonTop).toBeGreaterThanOrEqual(bounds.quickTop);
+  expect(bounds.buttonBottom).toBeLessThanOrEqual(bounds.quickBottom);
+});
+
+test('受限宽度下快捷功能保持单行且三态控件不重叠', async ({ page }) => {
+  await page.setViewportSize({ width: 760, height: 600 });
+  await page.locator('#quick-mode-single').click();
+
+  const state = await page.evaluate(() => {
+    const modes = document.querySelector('.quick-modes').getBoundingClientRect();
+    const quick = document.querySelector('.quick').getBoundingClientRect();
+    return {
+      quickHeight: quick.height,
+      overlap: modes.right > quick.left && modes.left < quick.right && modes.bottom > quick.top && modes.top < quick.bottom,
+      inputBottom: Math.round(document.querySelector('.inputrow').getBoundingClientRect().bottom),
+      viewportHeight: document.documentElement.clientHeight,
+    };
+  });
+  expect(state.quickHeight).toBeLessThanOrEqual(30);
+  expect(state.overlap).toBe(false);
+  expect(state.inputBottom).toBeLessThanOrEqual(state.viewportHeight - 8);
+  const problems = await layoutProblems(page);
+  expect(problems.document[0], JSON.stringify(problems, null, 2)).toBeLessThanOrEqual(problems.viewport[0] + 1);
+  expect(problems.clippedButtons, JSON.stringify(problems, null, 2)).toEqual([]);
 });
 
 test('上下文和附件按 convId 隔离', async ({ page }) => {

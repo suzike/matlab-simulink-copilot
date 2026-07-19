@@ -24,6 +24,13 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.10.3 R2023b / 高缩放底栏适配
+
+- 快捷功能改为隐藏、单行横向浏览、全部多行展开三态；三态控件固定在沙漏按钮右侧并持久化选择。
+- 单行模式按可用宽度显示按钮，隐藏滚动条，支持鼠标滚轮、触控板横滑和左右箭头；输入框与配置工具栏保持固定。
+- 修复快捷按钮悬停上边缘裁切，以及 capabilities 未返回时空模型下拉只显示箭头的问题。
+- 验证基线：sidecar **65 tests / 11 files**；Playwright **18 tests**（desktop + narrow）；MATLAB R2025b 类加载、真实 `exportapp` 截图和最终安装包验收。
+
 ### v0.10.2 每会话上下文与附件隔离
 
 - MATLAB `Panel` 使用 `ContextByConv` / `AttachmentsByConv`，上下文快照、附件消费和临时文件清理按 `convId` 隔离。

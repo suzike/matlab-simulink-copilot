@@ -3,7 +3,7 @@
     <linearGradient id="bg4" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b1626"/><stop offset="1" stop-color="#16121f"/></linearGradient>
   </defs>
   <rect width="920" height="560" rx="14" fill="url(#bg4)"/>
-  <text x="36" y="44" fill="#f3f0fa" font-size="20" font-weight="700">v0.10 功能全景</text>
+  <text x="36" y="44" fill="#f3f0fa" font-size="20" font-weight="700">v0.10.3 功能全景</text>
   <text x="36" y="66" fill="#9a92ad" font-size="12.5">原生内嵌 AI 助手 + 确定性 MBD 工程套件 + 多会话可靠性与统一安全门控。</text>
 
   <!-- col 1: 对标官方 -->

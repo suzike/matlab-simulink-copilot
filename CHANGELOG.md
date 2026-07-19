@@ -7,6 +7,32 @@
 
 ---
 
+## [0.10.3] — 2026-07-19
+
+本补丁版本解决 GitHub Issue #1 中 MATLAB R2023b / 高显示缩放下底部功能区占用过大的问题，并完成快捷功能的响应式三态交互。
+
+### 新增（Added）
+
+- 快捷功能增加隐藏、单行、多行三态控制，控件位于沙漏按钮右侧，用户选择保存到本地并在下次打开时恢复。
+- 单行模式按屏幕宽度自然显示按钮，隐藏滚动条，支持鼠标滚轮、触控板横滑和左右箭头浏览后续功能。
+
+### 修复（Fixed）
+
+- 将快捷功能从多行默认布局改为单行横向浏览，减少 MATLAB R2023b 或高显示缩放环境中的底栏占用；输入框与配置工具栏不参与切换。
+- 修复快捷按钮悬停上移后，上边缘被单行容器轻微裁切的问题。
+- 修复 capabilities 尚未返回或模型列表为空时，工具栏出现孤立原生下拉箭头的问题。
+
+### 变更（Changed）
+
+- 三态控件移动到沙漏按钮右侧；隐藏模式只隐藏快捷功能行，配置工具栏和输入框保持可用。
+- README、安装指南、开发计划、维护手册和发布清单同步至 v0.10.3；两张主界面图由当前源码在 MATLAB R2025b 中重新执行 `exportapp` 生成。
+
+### 验证（Verified）
+
+- Sidecar：65 项 Node 测试全部通过。
+- UI：18 项 Playwright 用例通过，覆盖桌面/窄屏、明暗主题、快捷功能三态、无滚动条滚轮横移、悬停边界、空模型下拉、标签隔离和 Fork 附件隔离。
+- MATLAB：R2025b `Panel` / `Bridge` 静态检查完成，`matlabcopilot.Panel` 类加载通过。
+
 ## [0.10.2] — 2026-07-18
 
 本补丁版本完成标签页与 Fork 的上下文、附件资源隔离，避免后台事件和分支粘贴污染当前会话。
@@ -197,6 +223,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.10.3]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.3
 [0.10.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.2
 [0.10.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.1
 [0.10.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.0

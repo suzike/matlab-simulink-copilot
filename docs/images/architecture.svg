@@ -12,7 +12,7 @@
   </defs>
   <rect width="920" height="620" rx="14" fill="url(#bg)"/>
 
-  <text x="36" y="46" fill="#f3f0fa" font-size="22" font-weight="700">MATLAB / Simulink Copilot v0.10 — 运行时架构</text>
+  <text x="36" y="46" fill="#f3f0fa" font-size="22" font-weight="700">MATLAB / Simulink Copilot v0.10.3 — 运行时架构</text>
   <text x="36" y="70" fill="#9a92ad" font-size="13">真实 MATLAB 内嵌 UI · per-conv 配置与生命周期 · 本地确定性 MBD · 双后端与 MATLAB MCP</text>
 
   <!-- Layer 1: MATLAB UI -->

@@ -452,13 +452,37 @@
   .audit-empty { color: var(--faint); padding: 12px; text-align: center; font-size: 11px; }
 
   /* ── 底部输入 ── */
-  footer { border-top: 1px solid var(--border); background: rgba(29,30,36,.7); backdrop-filter: blur(6px); padding: 9px; }
-  .quick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 7px; }
+  footer { flex: 0 0 auto; border-top: 1px solid var(--border); background: rgba(29,30,36,.7);
+           backdrop-filter: blur(6px); padding: 9px; }
+  .quick-shell { min-width: 0; display: grid; grid-template-columns: 25px minmax(0,1fr) 25px;
+                 align-items: center; gap: 4px; margin-bottom: 2px; }
+  .quick-modes { height: 28px; display: inline-flex; flex: 0 0 auto; overflow: hidden;
+                 border: 1px solid var(--border2); border-radius: 8px; background: var(--surface2); }
+  .quick-mode { width: 25px; height: 100%; padding: 0; border: 0; border-right: 1px solid var(--border2);
+                display: grid; place-items: center; background: transparent; color: var(--muted); cursor: pointer; }
+  .quick-mode:last-child { border-right: 0; }
+  .quick-mode:hover { color: var(--text); background: var(--surface3); }
+  .quick-mode.active { color: var(--brand1); background: var(--surface3); }
+  .quick-mode svg { width: 14px; height: 14px; }
+  .quick { display: flex; min-width: 0; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap;
+           align-items: center; gap: 6px; scroll-behavior: smooth; scrollbar-width: none; }
+  .quick::-webkit-scrollbar { display: none; }
+  .toolbar { scrollbar-width: none; }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .quick-nav { width: 25px; height: 28px; padding: 0; border: 1px solid var(--border2); border-radius: 8px;
+               display: grid; place-items: center; background: var(--surface2); color: var(--muted); cursor: pointer; }
+  .quick-nav:hover:not(:disabled) { color: var(--text); border-color: var(--brand2); }
+  .quick-nav:disabled { opacity: .22; cursor: default; }
+  .quick-nav svg { width: 14px; height: 14px; }
+  .quick-shell[data-mode="collapsed"] { display: none; }
+  .quick-shell[data-mode="expanded"] { grid-template-columns: minmax(0,1fr); align-items: start; }
+  .quick-shell[data-mode="expanded"] .quick-nav { display: none; }
+  .quick-shell[data-mode="expanded"] .quick { flex-wrap: wrap; overflow: visible; padding-bottom: 0; }
   .quick button { background: var(--surface2); border: 1px solid var(--border2); color: var(--muted);
                   border-radius: 8px; min-width: max-content; height: 28px; padding: 0 10px; font-size: 11px;
                   line-height: 1; white-space: nowrap; overflow: hidden; flex: 0 0 auto; cursor: pointer;
                   display: inline-flex; align-items: center; justify-content: center; transition: all .14s; }
-  .quick button:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); transform: translateY(-1px); }
+  .quick button:hover { color: var(--text); border-color: var(--brand2); background: var(--surface3); }
   /* 悬停 2 秒弹出的功能说明气泡 */
   #tip { position: fixed; z-index: 9999; max-width: 280px; background: var(--surface3, #2a2b33);
          border: 1px solid var(--brand2); border-radius: 10px; padding: 9px 11px; font-size: 12px;
@@ -466,7 +490,7 @@
          pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
   #tip.show { opacity: 1; transform: translateY(0); }
   #tip b { color: var(--brand1, #b06bff); }
-  .inputrow { display: flex; gap: 7px; align-items: flex-end; background: var(--surface2); border: 1px solid var(--border2);
+  .inputrow { display: flex; flex: 0 0 auto; gap: 7px; align-items: flex-end; background: var(--surface2); border: 1px solid var(--border2);
               border-radius: 12px; padding: 6px; transition: border-color .15s; }
   .inputrow:focus-within { border-color: var(--brand2); box-shadow: 0 0 0 3px rgba(124,92,255,.12); }
   #input { flex: 1; resize: none; background: transparent; color: var(--text); border: none; outline: none;
@@ -481,6 +505,7 @@
 
   /* ── 工具栏(后端/模型/思考/模式 + 附件/斜杠)── */
   #attachments, .fork-attachments { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 6px; }
+  #attachments { flex: 0 0 auto; }
   #attachments:empty, .fork-attachments:empty { display: none; }
   .fork-attachments { margin: 7px 0 0 28px; }
   .att { display: inline-flex; align-items: center; gap: 5px; max-width: 190px; min-width: 0; white-space: nowrap;
@@ -489,7 +514,7 @@
   .att-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .att .x { cursor: pointer; color: var(--faint); }
   .att-clear { flex: 0 0 auto; cursor: pointer; }
-  .toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+  .toolbar { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; margin-bottom: 7px; }
   .tb-spacer { flex: 1; }
   .tbtn { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--border2); background: var(--surface2);
           color: var(--muted); font-size: 16px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
@@ -506,14 +531,15 @@
   .tb-group .seg { padding: 0 10px; gap: 5px; } .tb-group .seg:hover { background: var(--surface3); }
   .tb-group .sel { padding: 0 6px; max-width: 130px; }
   .tb-group .sel:hover { background: var(--surface3); } .tb-group .sel option { background: var(--surface); }
+  .model-unavailable { display: none !important; }
   #tb-backend { font-weight: 600; } #tb-mode #mode-label { white-space: nowrap; }
   #tb-fast.on { color: var(--brand1); border-color: var(--brand2); background: var(--surface3); font-weight: 600; }
   #tb-fast.disabled { opacity: .4; pointer-events: none; }
   #tb-backend::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--brand1); }
   @media (max-width: 720px) {
-    .toolbar { flex-wrap: wrap; }
+    .toolbar { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding-bottom: 3px; }
     .toolbar .tb-spacer { display: none; }
-    .tb-group { order: 2; width: 100%; max-width: 100%; overflow-x: auto; overflow-y: hidden; justify-content: flex-start; }
+    .tb-group { order: initial; width: auto; max-width: none; overflow: visible; flex: 0 0 auto; }
     .tb-group .seg, .tb-group .sel { flex: 0 0 auto; }
   }
 
@@ -564,7 +590,7 @@
   </header>
   <div id="ctx-pop"></div>
   <div id="panes"></div>
-  <footer>
+  <footer id="composer">
     <div id="attachments"></div>
     <div class="toolbar">
       <button class="tbtn" id="tb-attach" title="添加本地文件作上下文">＋</button>
@@ -573,11 +599,22 @@
       <button class="tbtn" id="tb-audit" title="变更记录" data-tip="变更记录(可追溯):列出本会话所有破坏性操作(改模型/跑代码/跑测试)的留痕——时间、工具、改了什么、成功与否。同时按天写入 ~/.matlab-copilot/audit-*.jsonl 持久存档。">📋</button>
       <button class="tbtn" id="tb-export" title="导出当前对话为 Markdown 文件">⬇</button>
       <button class="tbtn" id="tb-insert" data-tip="回答中插入新需求的处理方式:【⏳ 队列】= 排队,等当前回答结束再自动发出;【⚡ 引导】= 立即中断当前回答,改按新输入回复。点击切换。(回答中按 Esc 可随时中断)">⏳</button>
+      <div class="quick-modes" role="group" aria-label="快捷功能显示方式">
+        <button class="quick-mode" id="quick-mode-collapsed" type="button" data-quick-mode="collapsed" title="隐藏快捷功能" data-tip="完全隐藏快捷功能按钮，只保留上方配置工具栏和输入框。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M8 12h8M11 16h2"/></svg>
+        </button>
+        <button class="quick-mode active" id="quick-mode-single" type="button" data-quick-mode="single" title="单行显示快捷功能" data-tip="快捷功能保持一行；鼠标滚轮或左右箭头可浏览后续按钮。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h16M4 12h16M4 16h16"/></svg>
+        </button>
+        <button class="quick-mode" id="quick-mode-expanded" type="button" data-quick-mode="expanded" title="展开全部快捷功能" data-tip="完整显示所有快捷功能，空间不足时自动换成多行。">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h7M13 6h7M4 12h7M13 12h7M4 18h7M13 18h7"/></svg>
+        </button>
+      </div>
       <span class="tb-spacer"></span>
       <div class="tb-group">
         <button class="seg" id="tb-backend" title="切换后端 Claude/Codex">Claude Code</button>
-        <span class="tb-div"></span>
-        <select class="sel" id="tb-model" title="模型"></select>
+        <span class="tb-div model-unavailable" id="tb-model-div"></span>
+        <select class="sel model-unavailable" id="tb-model" title="模型"></select>
         <span class="tb-div"></span>
         <select class="sel" id="tb-effort" title="思考强度">
           <option value="low">思考·低</option>
@@ -590,7 +627,11 @@
         <button class="seg" id="tb-fast" title="常驻后端:进程常驻,消除每轮冷启延迟(仅 Claude Code 后端;切换后下一轮生效)">⚡ 常驻</button>
       </div>
     </div>
-    <div class="quick">
+    <div class="quick-shell" id="quick-shell" data-mode="single">
+      <button class="quick-nav" id="quick-prev" type="button" title="向左浏览快捷功能" aria-label="向左浏览快捷功能">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <div class="quick" tabindex="0" aria-label="快捷功能">
       <button id="btn-diagnose" data-tip="诊断报错：抓取 MATLAB/Simulink 最近一次报错 + 当前上下文(文件/模型/选中),让 Copilot 分析根本原因并给出修复步骤。直接点即可,无需在输入框打字。">🩺 诊断报错</button>
       <button id="btn-explain" data-tip="解释选中(通用):解释你在编辑器里选中的 MATLAB 代码,或在 Simulink 里选中的 block;若什么都没选,则解释当前文件/模型的整体功能。看代码或快速了解整体时用它。">📖 解释选中</button>
       <button id="btn-comment" data-tip="加注释:给编辑器里选中的 MATLAB 代码添加清晰的中文注释,保持逻辑和缩进不变,只返回加注释后的代码,方便你直接替换。">💬 加注释</button>
@@ -609,6 +650,10 @@
       <button id="btn-cursor" data-tip="生成到光标:在下方输入框写要生成的内容,点此让 Copilot 把生成的代码直接插入 MATLAB 编辑器当前光标处(兼容实时脚本 Live Editor)。">↳ 生成到光标</button>
       <button id="btn-refresh" data-tip="刷新上下文:手动重新读取并刷新顶栏显示的当前文件/模型/选中 block/工作区变量/最近报错状态。切换了模型或选择后想让顶栏立刻更新时用它。">⟳ 刷新上下文</button>
       <button id="btn-clear" data-tip="清屏:清空当前聊天记录的显示(不影响后端会话历史,也不会改动你的文件或模型)。">🗑 清屏</button>
+      </div>
+      <button class="quick-nav" id="quick-next" type="button" title="向右浏览更多快捷功能" aria-label="向右浏览更多快捷功能">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
     </div>
     <div id="notes-area" class="notes-area"></div>
     <div class="inputrow">
@@ -677,6 +722,75 @@ function toMatlab(name, data) {
 
 // ── DOM ────────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
+
+// -- Quick action display modes ---------------------------------------------
+const quickShell = $('quick-shell');
+const quickActions = quickShell.querySelector('.quick');
+const quickPrev = $('quick-prev');
+const quickNext = $('quick-next');
+const QUICK_MODE_KEY = 'mc-quick-mode';
+const QUICK_MODES = new Set(['collapsed', 'single', 'expanded']);
+
+function quickStored(key) {
+  try { return localStorage.getItem(key); } catch (err) { return null; }
+}
+function quickStore(key, value) {
+  try { localStorage.setItem(key, value); } catch (err) {}
+}
+function notifyQuickLayout() {
+  requestAnimationFrame(() => {
+    updateQuickNav();
+    if (typeof scheduleNavRail === 'function') scheduleNavRail();
+  });
+}
+function setQuickMode(mode, persist = true) {
+  const nextMode = QUICK_MODES.has(mode) ? mode : 'single';
+  quickShell.dataset.mode = nextMode;
+  document.querySelectorAll('[data-quick-mode]').forEach((button) => {
+    const active = button.dataset.quickMode === nextMode;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  if (nextMode !== 'single') quickActions.scrollLeft = 0;
+  if (persist) quickStore(QUICK_MODE_KEY, nextMode);
+  notifyQuickLayout();
+}
+function updateQuickNav() {
+  const single = quickShell.dataset.mode === 'single';
+  const maxScroll = Math.max(0, quickActions.scrollWidth - quickActions.clientWidth);
+  quickPrev.disabled = !single || quickActions.scrollLeft <= 1;
+  quickNext.disabled = !single || quickActions.scrollLeft >= maxScroll - 1;
+}
+function scrollQuick(direction) {
+  const distance = Math.max(160, quickActions.clientWidth * .78);
+  quickActions.scrollBy({ left: direction * distance, behavior: 'smooth' });
+}
+
+document.querySelectorAll('[data-quick-mode]').forEach((button) => {
+  button.addEventListener('click', () => setQuickMode(button.dataset.quickMode));
+});
+quickPrev.addEventListener('click', () => scrollQuick(-1));
+quickNext.addEventListener('click', () => scrollQuick(1));
+quickActions.addEventListener('scroll', updateQuickNav, { passive: true });
+quickActions.addEventListener('wheel', (event) => {
+  if (quickShell.dataset.mode !== 'single' || quickActions.scrollWidth <= quickActions.clientWidth) return;
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+  event.preventDefault();
+  quickActions.scrollLeft += event.deltaY;
+  updateQuickNav();
+}, { passive: false });
+quickActions.addEventListener('keydown', (event) => {
+  if (quickShell.dataset.mode !== 'single' || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+  event.preventDefault();
+  scrollQuick(event.key === 'ArrowRight' ? 1 : -1);
+});
+window.addEventListener('resize', () => requestAnimationFrame(updateQuickNav));
+if (typeof ResizeObserver !== 'undefined') new ResizeObserver(updateQuickNav).observe(quickActions);
+
+const storedQuickMode = quickStored(QUICK_MODE_KEY);
+const legacyCollapsed = quickStored('mc-composer-quick-collapsed');
+setQuickMode(QUICK_MODES.has(storedQuickMode) ? storedQuickMode : (legacyCollapsed === '1' ? 'collapsed' : 'single'), false);
+
 // ── 多标签页状态 ────────────────────────────────────────────────────────────
 // 每个标签页一套独立状态(消息DOM/气泡/思考/busy/配置/审计)。全局 messages/bubbles/
 // thinks/config/auditLog 始终「指向」当前渲染目标那一套(按 convId 切换),这样海量已有
@@ -2280,6 +2394,9 @@ function populateModels() {
   const sel = $('tb-model'); if (!sel) return;
   const list = (caps && caps.models && caps.models[config.backend]) || [];
   sel.innerHTML = list.map((m) => '<option>' + escapeHtml(m) + '</option>').join('');
+  const available = list.length > 0;
+  sel.classList.toggle('model-unavailable', !available);
+  $('tb-model-div').classList.toggle('model-unavailable', !available);
   if (config.model && list.indexOf(config.model) >= 0) sel.value = config.model;
   else config.model = sel.value || null;
 }
@@ -2438,7 +2555,7 @@ function runSlash(name, args) {
     // —— 配置 ——
     case '/claude': config.backend = 'claude'; populateModels(); setConfig({ backend: 'claude', model: config.model }); break;
     case '/codex':  config.backend = 'codex';  populateModels(); setConfig({ backend: 'codex',  model: config.model }); break;
-    case '/model':  $('tb-model').focus(); break;
+    case '/model':  if (!$('tb-model').classList.contains('model-unavailable')) $('tb-model').focus(); else setStatus('当前后端未提供可选模型'); break;
     case '/think':  $('tb-effort').focus(); break;
     case '/mode':   togglePop('modes-pop'); break;
     // —— 本地高阶(确定性 MATLAB 模块,零 token)——

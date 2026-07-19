@@ -6,7 +6,7 @@
 
 停靠式 `uihtml` 面板，自动感知 MATLAB 工程和活动模型，通过本地 sidecar 驱动 Claude Code / Codex，并复用 MATLAB MCP 操作当前 MATLAB 会话。
 
-[![Version](https://img.shields.io/badge/version-0.10.2-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.2)
+[![Version](https://img.shields.io/badge/version-0.10.3-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.3)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/backends-Claude%20Code%20%7C%20Codex-2563eb)
@@ -22,7 +22,7 @@
 下面两张图均由仓库当前代码在 **MATLAB R2025b** 中实际启动 `matlabcopilot.Panel` 后，通过 MATLAB `exportapp` 导出，不是外部浏览器效果图。
 
 <div align="center">
-  <img src="docs/images/v0.10-matlab-embedded.jpg" width="900" alt="MATLAB R2025b 内真实运行的 MATLAB Copilot v0.10.x 界面">
+  <img src="docs/images/v0.10.3-matlab-embedded.jpg" width="900" alt="MATLAB R2025b 内真实运行的 MATLAB Copilot v0.10.3 界面">
   <br>
   <sub>真实 MATLAB 内嵌面板：活动工程上下文、Echo 全链路冒烟、当前工具栏与 MBD 快捷动作。</sub>
 </div>
@@ -30,25 +30,34 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/v0.10-matlab-safety.jpg" width="900" alt="MATLAB Copilot v0.10.x 工程报告与权限门控">
+  <img src="docs/images/v0.10.3-matlab-safety.jpg" width="900" alt="MATLAB Copilot v0.10.3 工程报告与权限门控">
   <br>
   <sub>真实 MATLAB 内嵌渲染：规范检查、覆盖率和本地权限确认卡。报告数值为固定协议演示数据，仅用于验证当前 UI 事件链。</sub>
 </div>
 
-## v0.10.2 重点
+## v0.10.3 重点
 
-这个补丁版本完成多标签与 Fork 的上下文、附件资源隔离，并保留 v0.10.1 建立的发布质量门禁。
+这个补丁版本解决 [Issue #1](https://github.com/suzike/matlab-simulink-copilot/issues/1) 中 MATLAB R2023b / 高显示缩放下底部功能区过高的问题，同时保持输入框位置和高度不变。
+
+- **快捷功能三态**：沙漏按钮右侧提供隐藏、单行和全部多行展开三个图标模式，选择按本地偏好持久化。
+- **响应式单行**：默认只占一行；大屏自然显示更多按钮，小屏显示较少，后续功能通过鼠标滚轮、触控板横滑或左右箭头浏览。
+- **无可见滚动条**：单行模式保留横向滚动能力但隐藏滚动条，避免额外占用垂直空间。
+- **输入区稳定**：三态只改变快捷功能行，配置工具栏、附件和对话输入框不参与缩放或折叠。
+- **工具栏修复**：修复快捷按钮悬停上边缘裁切，以及模型列表为空时出现孤立下拉箭头。
+- **R2023b 等效回归**：新增 760×600 受限视口覆盖；当前共 18 项 Playwright 用例在桌面和窄屏项目全部通过。
+
+v0.10.2 完成的会话资源隔离继续保留：
 
 - **每会话上下文快照**：标签与 Fork 按 `convId` 保存最近一次 MATLAB 工程状态，后台会话更新不会覆盖当前标签的上下文提示。
 - **每会话附件队列**：待发送文件、粘贴图片、单项移除、清空、消费和临时文件清理均按 `convId` 执行。
 - **Fork 输入隔离**：分支粘贴与附件列表固定绑定对应 Fork，不再误用主标签的活动会话。
 - **关闭资源回收**：关闭标签或 Fork 时只清理目标会话的配置、上下文和临时附件，不影响其他会话。
-- **隔离回归测试**：Playwright 在桌面与窄屏分别验证标签切换、后台事件和 Fork 附件渲染，共 8 项用例。
+- **隔离与布局回归测试**：Playwright 在桌面与窄屏验证标签切换、后台事件、Fork 附件、快捷功能三态、滚轮横移、悬停边界和空模型下拉，共 18 项用例。
 
 v0.10.1 完成的质量门禁继续保留：
 
 - **最终安装包验收**：`release_acceptance` 解包 `.mltbx`，从包内代码执行类加载、`checkcode`、环境自检与 Echo TCP 全链路，并输出 JSON 证据。
-- **浏览器布局回归**：Playwright 固定验证 1100×1000、520×900、明暗主题、代表性消息和快捷功能按钮，阻止文字越界与页面横向溢出回归。
+- **浏览器布局回归**：Playwright 固定验证 1100×1000、520×900 和 760×600 受限视口、明暗主题、代表性消息及全部可见按钮，阻止文字越界与页面横向溢出回归。
 - **静态 Release 门禁**：统一检查版本一致性、运行时零依赖、Git/安装包清单、关键图标、UTF-8、UI 脚本语法、打包污染和 SHA-256。
 - **CI 接入**：GitHub Actions 在 Windows 上执行 Node、UI 和静态发布门禁；MATLAB R2025b 验收保留机器可读的本机证据。
 - **结构化环境诊断**：`copilot_doctor` 保留原有终端输出，同时返回可供自动验收消费的检查结果。
@@ -69,7 +78,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 系统架构
 
 <div align="center">
-  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.10.2 静态系统架构图">
+  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.10.3 静态系统架构图">
 </div>
 
 | 层 | 当前职责 | 关键实现 |
@@ -90,7 +99,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ### 一轮消息的数据流
 
 <div align="center">
-  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.10.2 消息数据流图">
+  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.10.3 消息数据流图">
 </div>
 
 - MATLAB 与 sidecar 使用 localhost TCP + 行分隔 JSON；线上字符串统一转为 ASCII `\uXXXX`，规避 `tcpclient` UTF-8 解码问题。
@@ -102,7 +111,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 功能全景
 
 <div align="center">
-  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.10.2 功能全景图">
+  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.10.3 功能全景图">
 </div>
 
 ### AI 与模型交互
@@ -145,27 +154,13 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 - 回答期间支持队列或引导模式，`Esc` / Stop 中断并清理待处理任务。
 - 长对话轮次导航轨、悬停预览、点击跳转与 scroll-spy。
 - 文本、代码和图片附件；输入框可直接粘贴截图。
+- 快捷功能支持隐藏、单行横向浏览和全部多行展开三种形态；单行模式隐藏滚动条，可用鼠标滚轮、触控板或左右箭头浏览，输入框保持不变。
 - Light、Dark、跟随 MATLAB 三种主题；UI 单文件、无 CDN。
-
-<table>
-<tr>
-<td width="50%"><img src="docs/images/nav-rail.png" width="100%" alt="对话轮次导航轨真实截图"></td>
-<td width="50%"><img src="docs/images/annotate-popup.png" width="100%" alt="回答选区批注真实截图"></td>
-</tr>
-<tr>
-<td><sub>轮次导航轨：预览、跳转和当前轮定位。</sub></td>
-<td><sub>选区批注：原文锚定后形成可合并的追问便签。</sub></td>
-</tr>
-</table>
-
-<div align="center">
-  <img src="docs/images/feature-followup.png" width="760" alt="便签、排队、引导和中断真实截图">
-</div>
 
 ## 权限与安全
 
 <div align="center">
-  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.10.2 权限与安全逻辑图">
+  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.10.3 权限与安全逻辑图">
 </div>
 
 | 模式 | 只读操作 | 修改模型/写文件 | 执行 MATLAB / shell / 测试 | MATLAB 本地确定性副作用 |
@@ -282,7 +277,7 @@ release_acceptance('MATLAB-Copilot.mltbx', ...
 
 详细发布步骤和受保护的 Add-On 安装验收见 [Release 验收清单](docs/RELEASE_CHECKLIST.md)。
 
-本 Release 的发布门槛包括：65 个 sidecar 测试、8 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB `checkcode` / 类加载与真实 Panel 资源隔离测试、`.mltbx` 构建、SHA-256 生成和 GitHub Release 资产校验。
+本 Release 的发布门槛包括：65 个 sidecar 测试、18 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB `checkcode` / 类加载、真实 Panel 截图、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
 
 ## 已知边界
 

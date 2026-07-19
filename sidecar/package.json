@@ -1,6 +1,6 @@
 {
   "name": "matlab-copilot-sidecar",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "本地编排进程:驱动 headless agent(v1=Claude Code),对 MATLAB 暴露 localhost TCP",
   "type": "module",
   "private": true,
