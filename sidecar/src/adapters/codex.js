@@ -102,21 +102,27 @@ export class CodexAdapter extends BackendAdapter {
     armWatchdog();
 
     const feed = createLineBuffer((line) => {
+      if (this.child !== child || child._killing) return;
       const obj = parseLine(line);   // 自动跳过非 JSON 行(codex 的日志行)
       if (!obj) return;
       if (this.handle(obj)) gotTurn = true;
     });
 
     child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (d) => { armWatchdog(); feed(d); });   // 有输出 → 重置静默计时
+    child.stdout.on('data', (d) => {
+      if (this.child !== child || child._killing) return;
+      armWatchdog();
+      feed(d);
+    });
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (d) => { stderrBuf += d; });
 
     // 以下回调闭包捕获这一代 child,用 `this.child === child` 守卫,
     // 避免旧进程的异步 close/error 误清新一代 child 或误报错误。
     child.on('error', (err) => {
-      if (this.child === child) this.child = null;
-      this.emitEvent({ type: OutMsg.ERROR, message: `启动 codex 失败: ${err.message}` });
+      if (this.child !== child) return;
+      this.child = null;
+      if (!child._killing) this.emitEvent({ type: OutMsg.ERROR, message: `启动 codex 失败: ${err.message}` });
     });
     child.on('close', (code) => {
       if (watchdog) clearTimeout(watchdog);        // 进程已结束,撤看门狗

@@ -178,3 +178,92 @@ test('停止时先对账并保留防抖窗口内的最后一次保存', async ()
     f.cleanup();
   }
 });
+
+test('启动与停止并发时按调用顺序串行，停止返回后不会重新激活', async () => {
+  const f = fixture();
+  try {
+    const original = f.recorder.buildBaseline.bind(f.recorder);
+    f.recorder.buildBaseline = async (...args) => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return original(...args);
+    };
+    const starting = f.recorder.start();
+    const stopping = f.recorder.stop();
+    await Promise.all([starting, stopping]);
+    assert.equal(f.recorder.status().active, false);
+    assert.equal(f.recorder.status().phase, 'idle');
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});
+
+test('已跟踪文件超过大小上限时跳过，不误记为删除', async () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.root, 'small.txt'), '1234', 'utf8');
+    f.recorder.maxFileBytes = 8;
+    await f.recorder.start();
+    fs.writeFileSync(path.join(f.root, 'small.txt'), '123456789', 'utf8');
+    const entry = await f.recorder.capture('small.txt');
+    assert.equal(entry, null);
+    assert.equal(f.recorder.files.has('small.txt'), true);
+    assert.equal(fs.existsSync(path.join(f.root, 'small.txt')), true);
+    assert.equal(f.recorder.entries.some((item) => item.kind === 'deleted'), false);
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});
+
+test('模型变更后的交付判断不接受旧验证证据', async () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.root, 'plant.slx'), Buffer.from('v1'));
+    await f.recorder.start(f.root, { title: '模型修改' });
+    f.recorder.addExternalEntry({ id: 'old-test', source: 'deterministic-verification', kind: 'testrun_report', status: 'passed' });
+    f.recorder.addExternalEntry({ id: 'old-check', source: 'deterministic-verification', kind: 'standards_report', status: 'passed' });
+    fs.writeFileSync(path.join(f.root, 'plant.slx'), Buffer.from('v2'));
+    const change = await f.recorder.capture('plant.slx');
+    f.recorder.enrichEntry(change.id, change.sequence, { status: 'analyzed', changes: [], added: [], removed: [] });
+    const assessment = f.recorder.status().assessment;
+    assert.equal(assessment.readiness, 'not_ready');
+    assert.match(assessment.openRisks.join('\n'), /早于最近一次模型变更/);
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});
+
+test('模型语义结果截断时不能判定 ready', async () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.root, 'plant.slx'), Buffer.from('v1'));
+    await f.recorder.start(f.root, { title: '模型修改' });
+    fs.writeFileSync(path.join(f.root, 'plant.slx'), Buffer.from('v2'));
+    const change = await f.recorder.capture('plant.slx');
+    f.recorder.enrichEntry(change.id, change.sequence, { status: 'analyzed', truncated: true, changes: [], added: [], removed: [] });
+    f.recorder.addExternalEntry({ id: 'test', source: 'deterministic-verification', kind: 'testrun_report', status: 'passed' });
+    f.recorder.addExternalEntry({ id: 'check', source: 'deterministic-verification', kind: 'standards_report', status: 'passed' });
+    const assessment = f.recorder.status().assessment;
+    assert.equal(assessment.readiness, 'not_ready');
+    assert.match(assessment.openRisks.join('\n'), /已截断/);
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});
+
+test('文件监视失败时状态明确降级并启用周期对账', async () => {
+  const f = fixture();
+  try {
+    await f.recorder.start();
+    f.recorder.degradeWatcher('test watcher failure');
+    assert.equal(f.recorder.status().phase, 'degraded');
+    assert.equal(f.recorder.status().watcherHealthy, false);
+    assert.ok(f.recorder.poller);
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});

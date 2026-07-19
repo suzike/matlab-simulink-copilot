@@ -42,6 +42,10 @@ function report = release_acceptance(toolboxFile, opts)
             "matlab/resources/icons/copilot_24.png"
             "sidecar/src/index.js"
             "sidecar/src/permissionServer.js"
+            "sidecar/src/matlabPermissionProxy.js"
+            "sidecar/src/projectChangeRecorder.js"
+            "matlab/+matlabcopilot/ChangeTransaction.m"
+            "matlab/+matlabcopilot/ModelFileDiff.m"
         ];
         missing = required(~arrayfun(@(p) isfile(fullfile(packageRoot, p)), required));
         if isempty(missing)
@@ -135,6 +139,10 @@ function report = release_acceptance(toolboxFile, opts)
     end
 
     if opts.InstallPackage
+        rmpath(matlabDir);
+        sourceMatlabDir = fileparts(mfilename('fullpath'));
+        if contains(path, sourceMatlabDir); rmpath(sourceMatlabDir); end
+        clear('copilot');
         gates(end+1) = installPackage(toolboxFile, actualVersion, opts.AllowReplace); %#ok<AGROW>
     else
         gates(end+1) = waivedGate("MAT-009", "Add-On 注册安装", "未指定 InstallPackage=true，保持当前 MATLAB 环境不变"); %#ok<AGROW>
@@ -204,7 +212,7 @@ function gate = installPackage(toolboxFile, expectedVersion, allowReplace)
             return;
         end
         if ~isempty(hit); matlab.addons.uninstall(char(ids(hit))); end
-        matlab.addons.install(char(toolboxFile));
+        matlab.addons.toolbox.installToolbox(char(toolboxFile), true);
         addons = matlab.addons.installedAddons;
         ids = string(addons.Identifier);
         hit = find(ids == identifier, 1);
@@ -213,7 +221,31 @@ function gate = installPackage(toolboxFile, expectedVersion, allowReplace)
         if installedVersion ~= expectedVersion
             error('安装版本 %s 与期望 %s 不一致', installedVersion, expectedVersion);
         end
-        gate = passGate("MAT-009", "Add-On 注册安装", "已安装 " + installedVersion);
+        % Replacing an add-on with the same identifier can leave the path cache
+        % registered as enabled but not mounted in a fresh MATLAB process.
+        matlab.addons.disableAddon(char(identifier));
+        matlab.addons.enableAddon(char(identifier));
+        addons = matlab.addons.installedAddons;
+        ids = string(addons.Identifier);
+        hit = find(ids == identifier, 1);
+        if any(strcmp(addons.Properties.VariableNames, 'Enabled'))
+            enabled = addons.Enabled(hit);
+            if iscell(enabled); enabled = enabled{1}; end
+            if islogical(enabled); enabledOk = enabled;
+            else; enabledOk = any(strcmpi(string(enabled), ["true", "on", "enabled", "1"]));
+            end
+            if ~enabledOk; error('工具箱已注册但未启用'); end
+        end
+        rehash toolboxcache;
+        entry = string(which('copilot'));
+        if strlength(entry) == 0 || ~contains(lower(entry), lower("MATLAB Add-Ons"))
+            error('安装后 copilot 入口未解析到 Add-On 目录: %s', entry);
+        end
+        addpath(fileparts(entry));
+        if savepath ~= 0
+            error('无法把工具箱入口持久写入用户 MATLAB path');
+        end
+        gate = passGate("MAT-009", "Add-On 注册安装", "已安装 " + installedVersion + "，入口=" + entry);
     catch err
         gate = failGate("MAT-009", "Add-On 注册安装", string(err.message));
     end

@@ -3,9 +3,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { InMsg, OutMsg, serialize, createLineBuffer, parseLine } from './protocol.js';
-import { isReadonlyTool, isExecuteTool, isSafeIntrospection, INSERT_SYSTEM_PROMPT } from './config.js';
+import { isReadonlyTool, isAutoEditableTool, isSafeIntrospection, INSERT_SYSTEM_PROMPT } from './config.js';
 import { getCapabilities, resolveSlashCommand } from './capabilities.js';
 import { ProjectChangeRecorder } from './projectChangeRecorder.js';
+
+function normalizeConvId(value) {
+  const id = String(value || 'main');
+  return /^[A-Za-z0-9_-]{1,96}$/.test(id) ? id : 'main';
+}
 
 /**
  * sidecar 的网络层:
@@ -26,6 +31,7 @@ export class Server {
     this.convs = new Map();          // convId -> 会话状态 {convId,config,adapter,compacting,compactBuf,seed}
     this.client = null;              // 当前 UI socket
     this.pendingPermissions = new Map(); // reqId -> { sock, convId }
+    this.pendingPreparations = new Map(); // auto-edit requests waiting for MATLAB checkpoint ack
     this.audit = [];                 // 操作审计轨迹(破坏性工具调用留痕)
     this._clientServer = null;
     this._controlServer = null;
@@ -39,7 +45,7 @@ export class Server {
 
   // 取/建一个会话(标签页/分支)。convId 缺省为 'main';新会话可带初始配置(每页独立配置)。
   ensureConv(convId, config) {
-    convId = convId || 'main';
+    convId = normalizeConvId(convId);
     let c = this.convs.get(convId);
     if (c) return c;
     c = { convId, config: { ...this.config, ...(config || {}) }, adapter: null,
@@ -54,7 +60,8 @@ export class Server {
   }
 
   getConv(convId, initialConfig) {
-    return this.convs.get(convId || 'main') || this.ensureConv(convId, initialConfig);
+    convId = normalizeConvId(convId);
+    return this.convs.get(convId) || this.ensureConv(convId, initialConfig);
   }
 
   wireConv(c, adapter) {
@@ -118,7 +125,7 @@ export class Server {
 
   // 运行时切换某会话的后端/模型/模式/思考强度:停旧、按新配置重建、重连事件。
   applyConfig(convId, partial) {
-    convId = convId || 'main';
+    convId = normalizeConvId(convId);
     if (!this.convs.has(convId)) {
       // 新标签第一次动作就是切模式/后端时，直接按完整 UI 配置创建；不要先造默认
       // adapter 再异步重建，否则紧随其后的首条消息可能落到默认后端。
@@ -127,6 +134,7 @@ export class Server {
       return c.ready;
     }
     const c = this.getConv(convId);
+    this.denyPendingPermissions((p) => p.convId === convId, '会话配置已变更，旧权限请求已拒绝');
     c.config = { ...c.config, ...(partial || {}) };
     // 切后端会换掉 adapter,正在进行的 /compact 那次 RESULT 不会再来 → 清压缩中间态,避免会话永久卡在 compacting。
     c.compacting = false; c.compactBuf = '';
@@ -153,6 +161,7 @@ export class Server {
   }
 
   async closeConv(convId) {
+    convId = normalizeConvId(convId);
     const c = this.convs.get(convId);
     this.denyPendingPermissions((p) => p.convId === convId, '会话已关闭，操作已自动拒绝');
     if (c) {
@@ -170,6 +179,12 @@ export class Server {
       if (!predicate(p)) continue;
       if (p.timer) clearTimeout(p.timer);
       this.pendingPermissions.delete(key);
+      this.controlReply(p.sock, p.id, false, message);
+    }
+    for (const [key, p] of this.pendingPreparations) {
+      if (!predicate(p)) continue;
+      if (p.timer) clearTimeout(p.timer);
+      this.pendingPreparations.delete(key);
       this.controlReply(p.sock, p.id, false, message);
     }
   }
@@ -190,6 +205,7 @@ export class Server {
   }
 
   async stop() {
+    this.denyPendingPermissions(() => true, 'Sidecar is stopping; operation denied.');
     await this.changeRecorder.stop();
     for (const c of this.convs.values()) {
       c.closed = true; c.generation += 1;
@@ -211,6 +227,12 @@ export class Server {
       if (this.client === sock) {
         this.client = null;
         this.denyPendingPermissions(() => true, '面板已断开，操作已自动拒绝');
+      }
+      for (const [key, p] of this.pendingPreparations) {
+        if (p.sock === sock) {
+          if (p.timer) clearTimeout(p.timer);
+          this.pendingPreparations.delete(key);
+        }
       }
     });
     sock.on('error', () => {});
@@ -278,10 +300,15 @@ export class Server {
         this.handleChangeRecorder(msg.action, msg.projectRoot, msg.task);
         break;
       case InMsg.CHANGE_RECORDER_ENTRY:
-        this.changeRecorder.addExternalEntry(msg.entry);
+        try { this.changeRecorder.addExternalEntry(msg.entry); }
+        catch (error) { this.toClient({ type: OutMsg.ERROR, message: `模型变更记录写入失败: ${error?.message || error}` }); }
         break;
       case InMsg.CHANGE_RECORDER_ENRICH:
-        this.changeRecorder.enrichEntry(msg.id, msg.sequence, msg.semantic);
+        try { this.changeRecorder.enrichEntry(msg.id, msg.sequence, msg.semantic); }
+        catch (error) { this.toClient({ type: OutMsg.ERROR, message: `模型变更语义写入失败: ${error?.message || error}` }); }
+        break;
+      case InMsg.TRANSACTION_READY:
+        this.resolveTransactionPreparation(msg.convId, msg.id, msg.ready === true);
         break;
       default:
         break;
@@ -369,7 +396,7 @@ export class Server {
     const { id, tool, input } = msg;
     // 权限请求由各会话的 approval MCP 带上 convId(见 index.js / permissionServer.js);
     // 据此用「该会话的」编辑模式判定,并把确认卡路由到对应标签页。
-    const convId = msg.convId || 'main';
+    const convId = normalizeConvId(msg.convId);
     const mode = (this.convs.get(convId)?.config || this.config).mode;
 
     // 只读工具,或只读文档自省(help/which/exist/lookfor,文档兜底用):自动放行。
@@ -378,8 +405,20 @@ export class Server {
       return;
     }
     // 「自动」编辑模式:改模型/写文件自动放行;"运行代码/跑测试/执行 shell"仍需确认。
-    if (mode === 'auto' && !isExecuteTool(tool)) {
-      this.controlReply(sock, id, true);
+    if (mode === 'auto' && isAutoEditableTool(tool)) {
+      if (!this.client || this.client.destroyed) {
+        this.controlReply(sock, id, false, 'Panel is unavailable; transaction checkpoint was not created.');
+        return;
+      }
+      const key = `${convId}::${id}`;
+      const timer = setTimeout(() => {
+        if (!this.pendingPreparations.has(key)) return;
+        this.pendingPreparations.delete(key);
+        this.controlReply(sock, id, false, 'Transaction checkpoint timed out.');
+      }, 15000);
+      if (timer.unref) timer.unref();
+      this.pendingPreparations.set(key, { sock, id, convId, timer });
+      this.toClient({ type: OutMsg.TRANSACTION_PREPARE, convId, id, tool, input });
       return;
     }
     // 「计划」模式:只读探索、绝不改动。破坏性工具一律拒绝(sidecar 强制)。
@@ -395,6 +434,12 @@ export class Server {
     // 转发给 UI 等用户确认(带 convId,卡片落到对应标签页)。键用 convId::id 避免跨标签页 id 撞车。
     // 超时(180s)未响应 → 默认拒绝(安全默认),并清理条目,避免悬挂回调与 Map 泄漏。
     const key = `${convId}::${id}`;
+    const existing = this.pendingPermissions.get(key);
+    if (existing) {
+      if (existing.timer) clearTimeout(existing.timer);
+      this.controlReply(existing.sock, existing.id, false, 'A newer permission request replaced this request.');
+      this.pendingPermissions.delete(key);
+    }
     const timer = setTimeout(() => {
       if (this.pendingPermissions.has(key)) {
         this.pendingPermissions.delete(key);
@@ -408,12 +453,21 @@ export class Server {
   }
 
   resolvePermission(convId, id, approved) {
-    const key = `${convId || 'main'}::${id}`;
+    const key = `${normalizeConvId(convId)}::${id}`;
     const p = this.pendingPermissions.get(key);
     if (!p) return;
     if (p.timer) clearTimeout(p.timer);
     this.pendingPermissions.delete(key);
     this.controlReply(p.sock, id, approved);
+  }
+
+  resolveTransactionPreparation(convId, id, ready) {
+    const key = `${normalizeConvId(convId)}::${id}`;
+    const p = this.pendingPreparations.get(key);
+    if (!p) return;
+    if (p.timer) clearTimeout(p.timer);
+    this.pendingPreparations.delete(key);
+    this.controlReply(p.sock, p.id, ready, ready ? undefined : 'MATLAB transaction checkpoint failed.');
   }
 
   controlReply(sock, id, approved, message) {

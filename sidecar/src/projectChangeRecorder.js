@@ -22,6 +22,8 @@ export class ProjectChangeRecorder extends EventEmitter {
     this.debounceMs = debounceMs;
     this.maxFileBytes = maxFileBytes;
     this.active = false;
+    this.phase = 'idle';
+    this.watcherHealthy = false;
     this.sessionId = null;
     this.startedAt = null;
     this.stoppedAt = null;
@@ -30,15 +32,24 @@ export class ProjectChangeRecorder extends EventEmitter {
     this.files = new Map();
     this.sequence = 0;
     this.watcher = null;
+    this.poller = null;
     this.pending = new Map();
     this.reportFile = null;
     this.task = sanitizeTask();
+    this.operation = Promise.resolve();
   }
 
-  async start(projectRoot, task) {
+  start(projectRoot, task) {
+    return this.runExclusive(() => this.startImpl(projectRoot, task));
+  }
+
+  async startImpl(projectRoot, task) {
     if (this.active) return this.status();
+    this.phase = 'starting';
+    this.emit('state', this.status());
     if (projectRoot) this.root = path.resolve(String(projectRoot));
     if (!fs.existsSync(this.root) || !fs.statSync(this.root).isDirectory()) {
+      this.phase = 'idle';
       throw new Error(`工程目录不存在: ${this.root}`);
     }
     this.sessionId = makeSessionId();
@@ -53,20 +64,41 @@ export class ProjectChangeRecorder extends EventEmitter {
     this.recordDir = path.join(this.storageRoot, projectKey, this.sessionId);
     fs.mkdirSync(path.join(this.recordDir, 'shadow'), { recursive: true });
     fs.mkdirSync(path.join(this.recordDir, 'snapshots'), { recursive: true });
-    await this.buildBaseline(this.root);
-    this.active = true;
-    this.writeManifest();
-    this.startWatcher();
-    this.emit('state', this.status());
-    return this.status();
+    try {
+      await this.buildBaseline(this.root);
+      this.active = true;
+      this.phase = 'active';
+      this.writeManifest();
+      this.startWatcher();
+      this.emit('state', this.status());
+      return this.status();
+    } catch (error) {
+      this.active = false;
+      this.phase = 'idle';
+      this.watcherHealthy = false;
+      throw error;
+    }
   }
 
-  async stop() {
-    if (!this.active) return this.status();
+  stop() {
+    return this.runExclusive(() => this.stopImpl());
+  }
+
+  async stopImpl() {
+    if (!this.active) {
+      this.phase = 'idle';
+      return this.status();
+    }
+    this.phase = 'stopping';
+    this.emit('state', this.status());
     this.watcher?.close();
     this.watcher = null;
+    this.watcherHealthy = false;
+    if (this.poller) clearInterval(this.poller);
+    this.poller = null;
     await this.reconcile();
     this.active = false;
+    this.phase = 'idle';
     this.stoppedAt = new Date().toISOString();
     this.writeManifest();
     this.emit('state', this.status());
@@ -76,6 +108,8 @@ export class ProjectChangeRecorder extends EventEmitter {
   status() {
     return {
       active: this.active,
+      phase: this.phase,
+      watcherHealthy: this.watcherHealthy,
       projectRoot: this.root,
       sessionId: this.sessionId,
       startedAt: this.startedAt,
@@ -113,10 +147,28 @@ export class ProjectChangeRecorder extends EventEmitter {
         if (timer.unref) timer.unref();
         this.pending.set(rel, timer);
       });
-      this.watcher.on('error', (error) => this.emit('warning', { message: `文件监视失败: ${error.message}` }));
+      this.watcherHealthy = true;
+      this.watcher.on('error', (error) => this.degradeWatcher(`文件监视失败: ${error.message}`));
     } catch (error) {
-      this.emit('warning', { message: `当前平台不支持递归文件监视: ${error.message}` });
+      this.degradeWatcher(`当前平台不支持递归文件监视: ${error.message}`);
     }
+  }
+
+  degradeWatcher(message) {
+    this.watcherHealthy = false;
+    if (this.active) this.phase = 'degraded';
+    this.emit('warning', { message });
+    this.startFallbackPoller();
+    this.emit('state', this.status());
+  }
+
+  startFallbackPoller() {
+    if (this.poller || !this.active) return;
+    this.poller = setInterval(() => {
+      this.runExclusive(() => this.reconcile())
+        .catch((error) => this.emit('warning', { message: `周期对账失败: ${error.message}` }));
+    }, 5000);
+    if (this.poller.unref) this.poller.unref();
   }
 
   async buildBaseline(dir) {
@@ -131,7 +183,7 @@ export class ProjectChangeRecorder extends EventEmitter {
       const rel = this.normalizeRelative(path.relative(this.root, full));
       if (!this.shouldTrack(rel)) continue;
       const state = this.readState(full);
-      if (!state) continue;
+      if (!state || state.skipped) continue;
       this.files.set(rel, state.meta);
       this.copyBuffer(state.content, this.shadowPath(rel));
     }
@@ -152,6 +204,7 @@ export class ProjectChangeRecorder extends EventEmitter {
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
+    if (current?.skipped) return null;
     if (!previous && !current) return null;
     if (previous && current && previous.hash === current.meta.hash) return null;
 
@@ -291,7 +344,7 @@ export class ProjectChangeRecorder extends EventEmitter {
     const stat = fs.statSync(full);
     if (stat.size > this.maxFileBytes) {
       this.emit('warning', { relativePath: path.relative(this.root, full), message: '文件超过记录大小上限，已跳过' });
-      return null;
+      return { skipped: true, reason: 'oversized', size: stat.size };
     }
     const content = fs.readFileSync(full);
     return { content, meta: {
@@ -332,6 +385,12 @@ export class ProjectChangeRecorder extends EventEmitter {
     const temp = `${target}.tmp`;
     fs.writeFileSync(temp, JSON.stringify(manifest, null, 2), 'utf8');
     fs.renameSync(temp, target);
+  }
+
+  runExclusive(operation) {
+    const result = this.operation.then(operation, operation);
+    this.operation = result.catch(() => {});
+    return result;
   }
 }
 
@@ -484,18 +543,22 @@ function buildAssessment(entries, files, task) {
     ...(entry.changes || []).map((item) => item.block), ...(entry.added || []), ...(entry.removed || []),
   ]).filter(Boolean))];
   const verification = checks.map((entry) => ({ id: entry.id, kind: entry.kind,
-    status: entry.status, summary: entry.summary, metrics: entry.metrics }));
+    status: entry.status, summary: entry.summary, metrics: entry.metrics, sequence: entry.sequence }));
+  const lastChangeSequence = changes.reduce((max, entry) => Math.max(max, Number(entry.sequence) || 0), 0);
+  const freshVerification = verification.filter((entry) => (Number(entry.sequence) || 0) > lastChangeSequence);
   const openRisks = [];
   if (!changes.length) openRisks.push('尚未记录到工程变更');
   if (task.title === '未命名变更任务') openRisks.push('任务名称尚未填写');
   for (const entry of changes) {
     if (entry.semantic?.status === 'pending') openRisks.push(`${entry.relativePath}: 模型语义分析尚未完成`);
     if (entry.semantic?.status === 'failed') openRisks.push(`${entry.relativePath}: 模型语义分析失败`);
+    if (entry.semantic?.truncated) openRisks.push(`${entry.relativePath}: 模型语义分析结果已截断`);
     if (['rollback_failed', 'manual_recovery_required'].includes(entry.status)) openRisks.push(`${entry.model || entry.relativePath}: 变更事务需要人工恢复`);
   }
-  for (const item of verification) if (item.status === 'failed') openRisks.push(`${item.kind}: 验证失败`);
-  const hasPassedTest = verification.some((item) => item.kind === 'testrun_report' && item.status === 'passed');
-  const hasPassedStandards = verification.some((item) => item.kind === 'standards_report' && item.status === 'passed');
+  for (const item of freshVerification) if (item.status === 'failed') openRisks.push(`${item.kind}: 验证失败`);
+  const hasPassedTest = freshVerification.some((item) => item.kind === 'testrun_report' && item.status === 'passed');
+  const hasPassedStandards = freshVerification.some((item) => item.kind === 'standards_report' && item.status === 'passed');
+  if (impactedModels.length && verification.length && !freshVerification.length) openRisks.push('验证证据早于最近一次模型变更，必须重新验证');
   if (impactedModels.length && !hasPassedTest) openRisks.push('模型已变更，但尚无通过的 Test Manager 结果');
   if (impactedModels.length && !hasPassedStandards) openRisks.push('模型已变更，但尚无通过的建模规范检查结果');
   const riskLevel = openRisks.some((risk) => /失败|人工恢复/.test(risk)) ? 'high' : (openRisks.length ? 'medium' : 'low');

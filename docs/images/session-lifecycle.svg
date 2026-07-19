@@ -53,5 +53,5 @@
     <text x="486" y="282">C. 关闭标签或 Fork 后，迟到事件由 closed/generation 双重丢弃。</text>
     <text x="486" y="307">D. 上下文与附件按 convId 隔离；关闭/中断只清理目标会话。</text>
   </g>
-  <text x="884" y="374" fill="#64748b" font-size="10" text-anchor="end">v0.11.1 reliability model</text>
+  <text x="884" y="374" fill="#64748b" font-size="10" text-anchor="end">v0.11.2 reliability model</text>
 </svg>

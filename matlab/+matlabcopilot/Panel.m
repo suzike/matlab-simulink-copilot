@@ -490,7 +490,7 @@ classdef Panel < handle
             end
             action = struct('tool', string(tool), 'input', input, ...
                 'action', string(actionText), 'run', runFn, ...
-                'convId', cc, 'endsTurn', logical(endsTurn));
+                'convId', cc, 'endsTurn', logical(endsTurn), 'createdAt', datetime("now"));
             obj.LocalPermPend(char(id)) = action;
             obj.emitLocalAudit(id, tool, actionText, "pending", cc);
             obj.pushToUi(struct('type', "permission_request", 'convId', cc, ...
@@ -508,6 +508,16 @@ classdef Panel < handle
             action = obj.LocalPermPend(key);
             remove(obj.LocalPermPend, key);
             cc = action.convId;
+            expired = ~isfield(action, 'createdAt') || seconds(datetime("now") - action.createdAt) > 180;
+            modeChangedToPlan = obj.convMode(cc) == "plan";
+            if expired || modeChangedToPlan || isempty(obj.Figure) || ~isvalid(obj.Figure)
+                reason = "权限请求已失效";
+                if modeChangedToPlan; reason = "会话已切换到 Plan 模式"; end
+                obj.emitLocalAudit(key, action.tool, action.action + "(" + reason + ")", "failed", cc);
+                obj.pushToUi(struct('type', "status", 'convId', cc, 'text', reason + "，本地操作已拒绝。"));
+                if action.endsTurn; obj.pushLocalResult(cc, false); end
+                return;
+            end
             if ~approved
                 obj.emitLocalAudit(key, action.tool, action.action, "failed", cc);
                 obj.pushToUi(struct('type', "status", 'convId', cc, 'text', "已拒绝本地操作:" + action.action));
@@ -1196,6 +1206,44 @@ classdef Panel < handle
         function onSidecarMessage(obj, msg)
             if isfield(msg, 'type')
                 mt = string(msg.type);
+                if mt == "transaction_prepare"
+                    ready = false;
+                    try
+                        prep = msg;
+                        prep.type = "tool_use";
+                        prep.name = getfieldor(msg, 'tool', "");
+                        obj.trackModelDiff(prep);
+                        prepKey = char(string(getfieldor(msg, 'convId', "main")) + "|" + string(getfieldor(msg, 'id', "")));
+                        if isKey(obj.DiffPend, prepKey)
+                            state = obj.DiffPend(prepKey); state.prepared = true; obj.DiffPend(prepKey) = state;
+                            ready = true;
+                        end
+                    catch err
+                        obj.pushToUi(struct('type', "error", 'convId', char(string(getfieldor(msg, 'convId', "main"))), ...
+                            'message', "模型变更检查点失败：" + string(err.message)));
+                    end
+                    obj.Bridge.send(struct('type', "transaction_ready", ...
+                        'convId', char(string(getfieldor(msg, 'convId', "main"))), ...
+                        'id', char(string(getfieldor(msg, 'id', ""))), 'ready', ready));
+                    return;
+                end
+                if mt == "permission_request" && matlabcopilot.ModelDiff.isEditTool(getfieldor(msg, 'tool', ""))
+                    cid0 = string(getfieldor(msg, 'convId', "main"));
+                    prefix0 = char(cid0 + "|");
+                    existing0 = string(keys(obj.DiffPend));
+                    hasPending0 = any(startsWith(existing0, prefix0));
+                    if ~hasPending0
+                        try
+                            prep = msg; prep.type = "tool_use"; prep.name = getfieldor(msg, 'tool', "");
+                            obj.trackModelDiff(prep);
+                            prepKey = char(cid0 + "|" + string(getfieldor(msg, 'id', "")));
+                            if isKey(obj.DiffPend, prepKey)
+                                state = obj.DiffPend(prepKey); state.prepared = true; obj.DiffPend(prepKey) = state;
+                            end
+                        catch
+                        end
+                    end
+                end
                 if mt == "config_changed"
                     obj.rememberConvConfig(getfieldor(msg, 'convId', "main"), getfieldor(msg, 'config', struct()));
                 elseif mt == "capabilities" && isfield(msg, 'current')
@@ -1226,8 +1274,8 @@ classdef Panel < handle
                 end
             end
             obj.pushToUi(msg);
-            % 工程记录器先把文件级事件立即推到 UI；模型快照的块级语义分析随后
-            % 只读执行并回写同一条记录，不阻塞或覆盖原始文件证据。
+            % 工程记录器先把文件级事件立即推到 UI；模型快照语义分析会加载模型，
+            % 因此复用本地执行权限卡，批准后再回写同一条记录。
             if isfield(msg, 'type') && string(msg.type) == "project_change"
                 try, obj.enrichProjectChange(msg); catch, end
             end
@@ -1497,8 +1545,8 @@ classdef Panel < handle
         function trackModelDiff(obj, msg)
             % 模型语义 diff + 可信变更事务：tool_use 时建立前快照和可回退检查点，
             % tool_result 时做后快照、编译/规范验证，并在安全条件满足时自动回退失败修改。
-            % Ask 模式下执行等待确认卡,前快照必然先于实际改动;Auto 模式下事件先于
-            % MCP 往返到达,竞态窗口极小,即便偶发也只是"卡片不出现",无副作用。
+            % Ask 模式下确认卡保证前快照先于实际改动。Auto 模式不承诺前置检查点；
+            % 若工具事件到达较晚，仍保留工具结果与文件级记录，不伪造可回退证据。
             if ~isfield(msg, 'type'); return; end
             t = string(msg.type);
             cid = "main";
@@ -1511,6 +1559,26 @@ classdef Panel < handle
             key = char(cid + "|" + string(msg.id));
             if t == "tool_use" && isfield(msg, 'name') ...
                     && matlabcopilot.ModelDiff.isEditTool(msg.name) && isfield(msg, 'input')
+                if ~isKey(obj.DiffPend, key)
+                    prefix = char(cid + "|");
+                    pendingKeys = string(keys(obj.DiffPend));
+                    preparedKeys = strings(0, 1);
+                    for pi = 1:numel(pendingKeys)
+                        pk = char(pendingKeys(pi));
+                        if startsWith(pk, prefix)
+                            ps = obj.DiffPend(pk);
+                            if isstruct(ps) && isfield(ps, 'prepared') && logical(ps.prepared)
+                                preparedKeys(end+1, 1) = pendingKeys(pi); %#ok<AGROW>
+                            end
+                        end
+                    end
+                    if numel(preparedKeys) == 1
+                        oldKey = char(preparedKeys(1));
+                        state = obj.DiffPend(oldKey); remove(obj.DiffPend, oldKey);
+                        obj.DiffPend(key) = state;
+                        return;
+                    end
+                end
                 model = matlabcopilot.Context.currentModel();
                 if strlength(model) == 0; return; end
                 paths = matlabcopilot.ModelDiff.candidatePaths(msg.input);
@@ -1584,6 +1652,14 @@ classdef Panel < handle
             end
             beforeFile = string(getfieldor(entry, 'beforeSnapshot', ""));
             afterFile = string(getfieldor(entry, 'afterSnapshot', ""));
+            input = struct('beforeSnapshot', char(beforeFile), 'afterSnapshot', char(afterFile));
+            obj.requestLocalPermission("matlabcopilot__local__model_diff", input, [], ...
+                "分析模型变更语义(加载修改前后快照)", @() obj.runProjectChangeEnrichment(entry), false);
+        end
+
+        function ok = runProjectChangeEnrichment(obj, entry)
+            beforeFile = string(getfieldor(entry, 'beforeSnapshot', ""));
+            afterFile = string(getfieldor(entry, 'afterSnapshot', ""));
             try
                 semantic = matlabcopilot.ModelFileDiff.compare(beforeFile, afterFile);
             catch err
@@ -1597,6 +1673,7 @@ classdef Panel < handle
                 'id', char(string(getfieldor(entry, 'id', ""))), ...
                 'sequence', double(getfieldor(entry, 'sequence', 0)), ...
                 'semantic', semantic));
+            ok = true;
         end
 
         function handleInsertMode(obj, msg)

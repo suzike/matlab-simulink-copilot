@@ -26,7 +26,14 @@ jobs:
       - run: npx playwright install chromium
       - run: npm test
       - run: npm run test:ui
-      - run: npm run release:check -- --report ../_verify/quality_gate_results.json
+      - run: npm run release:check -- --artifact ../MATLAB-Copilot.mltbx --report ../_verify/quality_gate_results.json
+      - name: Upload release gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-evidence
+          path: _verify/quality_gate_results.json
+          if-no-files-found: error
       - name: Upload browser evidence on failure
         if: failure()
         uses: actions/upload-artifact@v4

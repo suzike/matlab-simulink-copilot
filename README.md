@@ -6,11 +6,11 @@
 
 停靠式 `uihtml` 面板，自动感知 MATLAB 工程和活动模型，通过本地 sidecar 驱动 Claude Code / Codex，并复用 MATLAB MCP 操作当前 MATLAB 会话。
 
-[![Version](https://img.shields.io/badge/version-0.11.1-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.1)
+[![Version](https://img.shields.io/badge/version-0.11.2-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.2)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/backends-Claude%20Code%20%7C%20Codex-2563eb)
-![Tests](https://img.shields.io/badge/sidecar-72%20tests-16a34a)
+![Tests](https://img.shields.io/badge/sidecar-79%20tests-16a34a)
 ![Runtime dependencies](https://img.shields.io/badge/sidecar-0%20npm%20dependencies-0f766e)
 
 [安装指南](INSTALL.md) · [变更日志](CHANGELOG.md) · [开发计划](plan.md) · [最新 Release](https://github.com/suzike/matlab-simulink-copilot/releases/latest)
@@ -24,7 +24,7 @@
 <div align="center">
   <img src="docs/images/v0.11.0-ui-overview.jpg" width="900" alt="MATLAB Copilot v0.11.0 全屏界面与可信变更事务">
   <br>
-  <sub>真实 MATLAB 内嵌面板：活动工程上下文、Echo 全链路冒烟、当前工具栏与 MBD 快捷动作。</sub>
+  <sub>全屏浏览器预览：活动工程上下文、Echo 全链路冒烟、当前工具栏与 MBD 快捷动作。</sub>
 </div>
 
 <br>
@@ -32,10 +32,19 @@
 <div align="center">
   <img src="docs/images/v0.11.0-change-recorder.jpg" width="900" alt="MATLAB Copilot v0.11.0 工程模型变更记录器">
   <br>
-  <sub>真实 MATLAB 内嵌渲染：规范检查、覆盖率和本地权限确认卡。报告数值为固定协议演示数据，仅用于验证当前 UI 事件链。</sub>
+  <sub>全屏浏览器预览：规范检查、覆盖率和本地权限确认卡。报告数值为固定协议演示数据，仅用于验证当前 UI 事件链。</sub>
 </div>
 
-## v0.11.1 重点
+## v0.11.2 重点
+
+- **Codex 权限闭环**：Codex 的 MATLAB MCP 调用先经过本地权限代理；拒绝或控制端口断开时，请求不会到达真实 MATLAB MCP。
+- **Auto 默认拒绝未知工具**：自动模式仅放行显式列入白名单的 `model_edit`，未知 MCP 工具必须确认。
+- **事务前置握手**：Auto 模型编辑先等待 MATLAB 建立快照与检查点，再由 sidecar 放行实际工具；基线阶段不再未经授权执行模型 Update。
+- **记录器可靠性**：启动/停止串行化，监视失败自动降级到周期对账，超限文件不再误报删除，旧验证证据不能让新变更误判 `ready`。
+- **前端安全与持久化**：修复 Markdown 链接属性注入、编辑重发残留历史、记录器重绘丢焦点和短视口弹窗问题。
+- **发布证据强化**：发布门禁实际比对 `SHA256SUMS.txt`，并检查权限代理、记录器与事务关键类是否进入安装包。
+
+v0.11.1 完成的记录器任务编辑修复继续保留：
 
 修复工程模型变更记录器的任务编辑弹窗：点击名称、需求 ID、责任人或描述输入框时不再被全局点击监听关闭；记录期间收到文件变化或状态刷新时，尚未保存的任务草稿保持不变。
 
@@ -94,7 +103,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 系统架构
 
 <div align="center">
-  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.11.1 静态系统架构图">
+  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.11.2 静态系统架构图">
 </div>
 
 | 层 | 当前职责 | 关键实现 |
@@ -115,7 +124,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ### 一轮消息的数据流
 
 <div align="center">
-  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.11.1 消息数据流图">
+  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.11.2 消息数据流图">
 </div>
 
 - MATLAB 与 sidecar 使用 localhost TCP + 行分隔 JSON；线上字符串统一转为 ASCII `\uXXXX`，规避 `tcpclient` UTF-8 解码问题。
@@ -127,7 +136,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 功能全景
 
 <div align="center">
-  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.11.1 功能全景图">
+  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.11.2 功能全景图">
 </div>
 
 ### AI 与模型交互
@@ -179,7 +188,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 权限与安全
 
 <div align="center">
-  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.11.1 权限与安全逻辑图">
+  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.11.2 权限与安全逻辑图">
 </div>
 
 | 模式 | 只读操作 | 修改模型/写文件 | 执行 MATLAB / shell / 测试 | MATLAB 本地确定性副作用 |

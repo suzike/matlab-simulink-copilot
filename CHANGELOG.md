@@ -7,6 +7,27 @@
 
 ---
 
+## [0.11.2] — 2026-07-20
+
+### 安全（Security）
+
+- Codex 的 MATLAB MCP 接入零依赖权限代理，在真实工具执行前复用 sidecar 权限决策链。
+- Auto 模式改为显式编辑工具白名单，未知工具不再按“非执行类”自动放行。
+- Auto 模型编辑新增 MATLAB 检查点握手；事务基线阶段不再未经批准执行模型更新回调。
+- 本地权限批准时重新校验会话模式、窗口状态和 180 秒有效期；模型快照语义分析纳入本地权限卡。
+
+### 修复（Fixed）
+
+- 修复记录器启动/停止竞态、超限文件误判删除、监视器失效仍显示健康和旧验证证据误判 `ready`。
+- 模型语义结果被截断时保持 `not_ready`，要求补齐分析证据。
+- 修复 Markdown 链接属性注入、编辑重发未裁剪持久化历史、记录器刷新丢失焦点与光标。
+- 修复旧 Claude/Codex 子进程迟到输出污染新一轮状态，并限制 JSONL 行缓冲区大小。
+
+### 验证（Verified）
+
+- Sidecar 79 项 Node 测试与 Playwright 28 项桌面/窄屏场景覆盖新增安全和可靠性边界。
+- 发布门禁校验安装包内容与 `SHA256SUMS.txt` 实际哈希一致，并扩展冷安装入口核对。
+
 ## [0.11.1] — 2026-07-19
 
 ### 修复（Fixed）
@@ -260,6 +281,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.11.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.2
 [0.11.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.1
 [0.11.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.0
 [0.10.3]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.3

@@ -189,6 +189,7 @@ export class ClaudeCodeAdapter extends BackendAdapter {
   wireChild(child, translator, label) {
     let stderrBuf = '';
     const feed = createLineBuffer((rawLine) => {
+      if (this.child !== child || child._killing) return;
       const obj = parseLine(rawLine);
       if (!obj) return;
       for (const ev of translator.handle(obj)) {
@@ -206,14 +207,16 @@ export class ClaudeCodeAdapter extends BackendAdapter {
     child.stderr.on('data', (d) => { stderrBuf += d; });
 
     child.on('error', (err) => {
-      if (this.child === child) { this.child = null; this.busy = false; }
-      this.emitEvent({ type: OutMsg.ERROR, message: `启动 ${label} 失败: ${err.message}` });
+      if (this.child !== child) return;
+      this.child = null;
+      this.busy = false;
+      if (!child._killing) this.emitEvent({ type: OutMsg.ERROR, message: `启动 ${label} 失败: ${err.message}` });
     });
 
     child.on('close', (code) => {
       // 只回写自己这代 translator 的 session;_noSession(reset 触发)时不回写,避免覆盖刚清空的 session。
       const sid = translator.getSessionId();
-      if (sid && !child._noSession) this.sessionId = sid;
+      if (this.child === child && sid && !child._noSession) this.sessionId = sid;
       if (this.child === child) { this.child = null; this.busy = false; }  // 仅清自己这代
       if (code !== 0 && !child._killing) {
         const tail = stderrBuf.trim().split('\n').slice(-5).join('\n');

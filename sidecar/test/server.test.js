@@ -222,6 +222,9 @@ test('自动模式:改模型自动放行,但运行代码仍需确认', async () 
   const ctrl = connectClient(controlPort);
   // 1) 改模型(编辑类)→ 自动放行,不弹卡片。
   ctrl.send({ type: 'permission_request', id: 'pa', tool: 'mcp__matlab__model_edit', input: { block: 'Gain' } });
+  const prepare = await ui.waitFor((m) => m.type === OutMsg.TRANSACTION_PREPARE && m.id === 'pa');
+  assert.equal(prepare.tool, 'mcp__matlab__model_edit');
+  ui.send({ type: InMsg.TRANSACTION_READY, id: 'pa', ready: true });
   const d = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'pa');
   assert.equal(d.approved, true);
   // 2) 运行代码(执行类)→ 仍转发 UI 确认。
@@ -231,8 +234,13 @@ test('自动模式:改模型自动放行,但运行代码仍需确认', async () 
   ui.send({ type: InMsg.PERMISSION_RESPONSE, id: 'pe', approved: true });
   const de = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'pe');
   assert.equal(de.approved, true);
-  // 编辑类那条不应触发任何 UI 卡片(只有运行那条触发)。
-  assert.equal(ui.all.filter((m) => m.type === OutMsg.PERMISSION_REQUEST).length, 1);
+  // Unknown tools are not edits: Auto must fail closed and ask the user.
+  ctrl.send({ type: 'permission_request', id: 'pu', tool: 'mcp__matlab__future_unknown_tool', input: {} });
+  await ui.waitFor((m) => m.type === OutMsg.PERMISSION_REQUEST && m.id === 'pu');
+  ui.send({ type: InMsg.PERMISSION_RESPONSE, id: 'pu', approved: false });
+  const du = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'pu');
+  assert.equal(du.approved, false);
+  assert.equal(ui.all.filter((m) => m.type === OutMsg.PERMISSION_REQUEST).length, 2);
   ui.close();
   ctrl.close();
   await server.stop();

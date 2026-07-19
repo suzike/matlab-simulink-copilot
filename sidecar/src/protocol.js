@@ -15,6 +15,7 @@ export const InMsg = Object.freeze({
   CHANGE_RECORDER_CONTROL: 'change_recorder_control', // { type, action:start|stop|status|configure|export, task? }
   CHANGE_RECORDER_ENTRY: 'change_recorder_entry',     // { type, entry } MATLAB 事务写入工程时间线
   CHANGE_RECORDER_ENRICH: 'change_recorder_enrich',   // { type, id, sequence, semantic } MATLAB 快照语义结果
+  TRANSACTION_READY: 'transaction_ready',             // { type, convId, id, ready }
 });
 
 // ── 出站(sidecar → UI/MATLAB)────────────────────────────────────────────
@@ -39,6 +40,7 @@ export const OutMsg = Object.freeze({
   CHANGE_RECORDER_STATE: 'change_recorder_state', // { type, state } 工程记录器状态
   PROJECT_CHANGE: 'project_change',               // { type, entry } 工程文件/AI 事务变更点
   CHANGE_REPORT: 'change_report',                 // { type, report } 导出报告路径与统计
+  TRANSACTION_PREPARE: 'transaction_prepare',     // { type, convId, id, tool, input }
 });
 
 // 把一行文本解析成消息对象;非法行返回 null(调用方应跳过)。
@@ -66,15 +68,23 @@ export function serialize(obj) {
 }
 
 // 一个简易的行缓冲:喂入任意 chunk,吐出完整行。
-export function createLineBuffer(onLine) {
+export function createLineBuffer(onLine, options = {}) {
   let buf = '';
+  const maxLength = options.maxLength ?? (8 * 1024 * 1024);
+  const onOverflow = typeof options.onOverflow === 'function' ? options.onOverflow : () => {};
   return (chunk) => {
-    buf += chunk;
+    buf += chunk.toString('utf8');
+    if (buf.length > maxLength && !buf.includes('\n')) {
+      buf = '';
+      onOverflow();
+      return;
+    }
     let idx;
     while ((idx = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, idx);
+      const line = buf.slice(0, idx).replace(/\r$/, '');
       buf = buf.slice(idx + 1);
-      onLine(line);
+      if (line.length > maxLength) onOverflow();
+      else if (line.trim()) onLine(line);
     }
   };
 }

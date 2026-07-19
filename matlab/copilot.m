@@ -25,9 +25,22 @@ function p = copilot(opts)
         addpath(here);
     end
 
+    % The panel is process-wide. Reuse the existing instance so repeated calls do
+    % not start competing sidecars or replace the shared MATLAB MCP session.
+    existing = matlabcopilot.Panel.findActive();
+    if ~isempty(existing)
+        p = existing;
+        try
+            p.Figure.Visible = 'on';
+            figure(p.Figure);
+        catch
+        end
+        return;
+    end
+
     % claude 后端:把"当前这个 MATLAB 会话"共享给 MCP,使 matlab-mcp-server 能 attach
     % 到面板所在实例(多实例时避免 attach 歧义)。需已安装 MATLAB MCP Server Toolbox。
-    if opts.Backend == "claude"
+    if any(opts.Backend == ["claude", "codex"])
         try
             if exist('shareMATLABSession', 'file')
                 shareMATLABSession();

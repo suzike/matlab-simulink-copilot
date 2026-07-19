@@ -215,10 +215,13 @@
   .bubble a { color: var(--user); text-decoration: none; border-bottom: 1px dashed rgba(78,161,255,.5); }
   .bubble a:hover { border-bottom-style: solid; }
   /* 气泡操作按钮(复制 / 编辑 / Fork)—— 仅悬停时显示,平时不占高度 */
-  .msg-actions { display: flex; gap: 6px; flex-wrap: wrap; opacity: 0; max-height: 0; margin-top: 0; overflow: hidden;
-                 transition: opacity .12s ease, max-height .12s ease, margin-top .12s ease; }
-  .row:hover .msg-actions, .row:focus-within .msg-actions { opacity: 1; max-height: 32px; margin-top: 8px; }
+  .row { position: relative; padding-bottom: 28px; margin-bottom: -28px; }
+  .row:hover, .row:focus-within { z-index: 6; }
+  .msg-actions { position: absolute; bottom: 0; left: 42px; z-index: 7; display: flex; gap: 6px;
+                 flex-wrap: wrap; opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+  .row:hover .msg-actions, .row:focus-within .msg-actions { opacity: 1; pointer-events: auto; }
   .row.user .msg-actions { justify-content: flex-end; }
+  .row.user .msg-actions { left: auto; right: 42px; }
   .ma-btn { background: transparent; border: 1px solid var(--border2); color: var(--muted);
             border-radius: 7px; padding: 2px 9px; font-size: 10.5px; cursor: pointer; transition: all .12s;
             display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex: 0 0 auto; }
@@ -443,7 +446,7 @@
 
   /* ── 变更记录(操作审计)弹窗 ── */
   #audit-pop { width: 340px; max-height: 320px; overflow-y: auto; }
-  #recorder-pop { width: min(380px, calc(100vw - 24px)); max-height: 390px; overflow-y: auto; }
+  #recorder-pop { width: min(380px, calc(100vw - 24px)); max-height: min(390px, calc(100vh - 80px)); overflow-y: auto; }
   #tb-recorder.recording { color: #ef4444; border-color: #ef4444; background: rgba(239,68,68,.1); }
   .rec-head { display:flex; align-items:center; gap:8px; padding:4px 7px 9px; border-bottom:1px solid var(--border); }
   .rec-dot { width:8px; height:8px; border-radius:50%; background:var(--faint); flex:0 0 auto; }
@@ -947,6 +950,14 @@ function setStatus(t) { $('status').textContent = t; }
 function scrollDown() { if (messages) messages.scrollTop = messages.scrollHeight; }
 function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
 function escapeAttr(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function safeHttpHref(value) {
+  const decoded = String(value).replace(/&amp;/g, '&');
+  try {
+    const url = new URL(decoded);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '#';
+    return escapeAttr(url.href);
+  } catch (e) { return '#'; }
+}
 
 // ── 轻量 Markdown 渲染器(自包含、无 CDN、流式安全)──────────────────────────
 const Z0 = String.fromCharCode(0xE000), Z1 = String.fromCharCode(0xE001);
@@ -957,12 +968,12 @@ function mdInline(escaped) {
   let out = escaped;
   const codes = [];
   out = out.replace(/`([^`\n]+)`/g, (m, c) => { codes.push(c); return Z1 + (codes.length - 1) + Z1; });
-  out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => '<a href="' + u + '" target="_blank" rel="noopener">' + t + '</a>');
+  out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, t, u) => '<a href="' + safeHttpHref(u) + '" target="_blank" rel="noopener noreferrer">' + t + '</a>');
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/__([^_]+)__/g, '<strong>$1</strong>');
   out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
   out = out.replace(/(^|[^_\w])_([^_\n]+)_/g, '$1<em>$2</em>');
-  out = out.replace(/(^|[^"=>\w])(https?:\/\/[^\s<]+)/g, (m, pre, u) => pre + '<a href="' + u + '" target="_blank" rel="noopener">' + u + '</a>');
+  out = out.replace(/(^|[^"=>\w])(https?:\/\/[^\s<]+)/g, (m, pre, u) => pre + '<a href="' + safeHttpHref(u) + '" target="_blank" rel="noopener noreferrer">' + u + '</a>');
   out = out.replace(RE_CODE, (m, i) => '<code>' + codes[+i] + '</code>');
   return out;
 }
@@ -1105,6 +1116,13 @@ function addUserMessage(text) {
 function resetToEdit(row, text) {
   useRender(activeConv);
   toMatlab('interrupt', {}); setBusy(false, activeConv);
+  const t = activeTab();
+  const historyRows = Array.from(messages.querySelectorAll('.row.user, .row.assistant'));
+  const historyIndex = historyRows.indexOf(row);
+  if (t && historyIndex >= 0) {
+    t.history = t.history.slice(0, historyIndex);
+    scheduleSave();
+  }
   // 删掉此条及其后的所有消息行(在当前活动标签的 pane 内)。
   while (row && row.nextSibling) {
     const victim = row.nextSibling;
@@ -2062,6 +2080,13 @@ function recorderKind(entry) {
 
 function renderRecorder() {
   const pop = $('recorder-pop');
+  const focusedId = document.activeElement && /^rec-task-/.test(document.activeElement.id)
+    ? document.activeElement.id : '';
+  const selection = focusedId ? {
+    start: document.activeElement.selectionStart,
+    end: document.activeElement.selectionEnd,
+  } : null;
+  const previousScrollTop = pop.scrollTop;
   const active = recorderState.active === true;
   const task = recorderDraft || recorderState.task || {};
   const assessment = recorderState.assessment || { riskLevel: 'medium', readiness: 'not_ready', openRisks: [] };
@@ -2100,6 +2125,14 @@ function renderRecorder() {
   pop.querySelectorAll('.rec-fields input, .rec-fields textarea').forEach((field) => {
     field.addEventListener('input', () => { recorderDraft = recorderTaskPayload(); });
   });
+  pop.scrollTop = previousScrollTop;
+  if (focusedId) {
+    const field = $(focusedId);
+    if (field) {
+      field.focus();
+      if (selection && field.setSelectionRange) field.setSelectionRange(selection.start, selection.end);
+    }
+  }
 }
 
 function recorderTaskPayload() {
@@ -2382,6 +2415,15 @@ reflectInsertMode();
 // 弹层优先:批注框/斜杠面板开着时先让它们的 Esc 关闭弹层,不中断回答。
 function escHandler(e) {
   if (e.key !== 'Escape' && e.key !== 'Esc') return;
+  if (e.__mcEscHandled) return;
+  const visiblePopup = Array.from(document.querySelectorAll('.popup')).find((p) => !p.classList.contains('hidden'));
+  if (visiblePopup) {
+    e.__mcEscHandled = true;
+    e.preventDefault();
+    e.stopPropagation();
+    hidePops();
+    return;
+  }
   if (!$('annotate-pop').classList.contains('hidden')) return;                 // 批注框开着 → 不中断
   if ($('slash-pop') && !$('slash-pop').classList.contains('hidden')) return;  // 斜杠面板开着 → 不中断
   if (activeTab() && activeTab().busy) { e.preventDefault(); e.stopPropagation(); interruptCurrent(); }

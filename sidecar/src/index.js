@@ -20,22 +20,38 @@ const CLAUDE_MODE = { ask: null, auto: 'acceptEdits', plan: 'plan' };
 // mode → codex 沙箱(exec 非交互,ask/plan 只读以防意外改动;auto 允许写)。
 const CODEX_SANDBOX_BY_MODE = { ask: 'read-only', auto: 'workspace-write', plan: 'read-only' };
 
+function safeConvId(value) {
+  const id = String(value || 'main');
+  return /^[A-Za-z0-9_-]{1,96}$/.test(id) ? id : 'main';
+}
+
+function permissionWrappedMatlabMcp(actual, convId) {
+  if (!actual) return null;
+  const entry = path.join(__dirname, 'matlabPermissionProxy.js');
+  const encoded = Buffer.from(JSON.stringify(actual), 'utf8').toString('base64url');
+  return {
+    command: process.execPath,
+    args: [entry, String(cfg.CONTROL_PORT), safeConvId(convId), encoded],
+  };
+}
+
 // 按当前运行时配置造一个后端适配器。state:{backend,model,effort,mode}
 function makeAdapter(state) {
   const backend = state.backend || cfg.BACKEND;
   if (backend === 'echo') return new EchoAdapter();
   if (backend === 'codex') {
+    const convId = safeConvId(state.convId);
     return new CodexAdapter({
       cwd: cfg.CWD,
       model: state.model || cfg.MODEL,
       effort: state.effort || cfg.CODEX_EFFORT,
       sandbox: CODEX_SANDBOX_BY_MODE[state.mode] || cfg.CODEX_SANDBOX,
-      matlabMcp: cfg.getMatlabMcpServer(), // 精简配置下重新注入 matlab 工具
+      matlabMcp: permissionWrappedMatlabMcp(cfg.getMatlabMcpServer(), convId),
     });
   }
   // claude:注入 MATLAB MCP + 权限确认 MCP,--strict-mcp-config 只加载这两个。
   // 多会话:approval MCP 带上 convId,使权限确认卡能路由回对应标签页;mcp 配置文件按会话区分。
-  const convId = state.convId || 'main';
+  const convId = safeConvId(state.convId);
   const approvalEntry = path.join(__dirname, 'permissionServer.js');
   const mcpServers = {
     approval: { command: process.execPath, args: [approvalEntry], env: {

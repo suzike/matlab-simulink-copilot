@@ -42,6 +42,10 @@ export const PREAPPROVED_TOOLS = ['Read', 'Glob', 'Grep', 'TodoWrite', 'WebFetch
 // 也仍需用户确认(区别于"改模型/写文件"这类编辑)。读改靠确认链,真正跑代码多一道关。
 export const EXECUTE_TOOL_SUFFIXES = ['run_matlab_file', 'evaluate_matlab_code', 'model_test'];
 
+// Auto mode is allow-list based. Unknown MCP tools must not inherit write
+// permission merely because they are not classified as execution tools.
+export const AUTO_EDIT_TOOL_SUFFIXES = ['model_edit'];
+
 // 给 agent 追加的系统提示,让它清楚自己是 MATLAB 内嵌 Copilot。
 export const APPEND_SYSTEM_PROMPT =
   '你是内嵌在 MATLAB/Simulink 界面里的 Copilot 侧边栏。用户消息可能附带 <matlab-context> 段,' +
@@ -118,6 +122,11 @@ export function isExecuteTool(toolName) {
   if (!toolName) return false;
   if (toolName === 'Bash' || toolName === 'KillBash') return true;
   return EXECUTE_TOOL_SUFFIXES.some((suf) => toolName.endsWith(suf));
+}
+
+export function isAutoEditableTool(toolName) {
+  if (!toolName) return false;
+  return AUTO_EDIT_TOOL_SUFFIXES.some((suf) => toolName.endsWith(suf));
 }
 
 // 只读自省调用:用于文档兜底(本地 help)。这些函数纯读、无副作用,可自动放行。

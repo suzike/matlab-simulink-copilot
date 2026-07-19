@@ -109,6 +109,8 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
 
   await page.locator('#rec-task-title').fill('热管理增益调整 - 修订');
   await page.locator('#rec-task-req').fill('REQ-101, BUG-42');
+  await page.locator('#rec-task-title').focus();
+  await page.locator('#rec-task-title').evaluate((el) => el.setSelectionRange(4, 4));
   await expect(page.locator('#recorder-pop')).toBeVisible();
 
   await page.evaluate(() => onSidecar({ type: 'project_change', entry: {
@@ -118,6 +120,9 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
   } }));
   await expect(page.locator('#recorder-pop')).toContainText('models/controller.slx');
   await expect(page.locator('#recorder-pop')).toContainText('参数 1 / 块 +1 -0');
+  await expect(page.locator('#rec-task-title')).toBeFocused();
+  await expect(page.locator('#rec-task-title')).toHaveValue('热管理增益调整 - 修订');
+  expect(await page.locator('#rec-task-title').evaluate((el) => el.selectionStart)).toBe(4);
   await expect(page.locator('#rec-task-title')).toHaveValue('热管理增益调整 - 修订');
   await expect(page.locator('#rec-task-req')).toHaveValue('REQ-101, BUG-42');
 
@@ -127,6 +132,43 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
     evidenceIndexFile: 'C:/records/session-ui/evidence-index.json',
   } }));
   await expect(page.locator('#status')).toHaveText('任务证据包已导出');
+});
+
+test('Markdown 链接不能注入事件属性', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const host = document.createElement('div');
+    host.innerHTML = renderMd('[hover](https://example.com/"onmouseover="window.__xss=7)');
+    document.body.appendChild(host);
+    const anchor = host.querySelector('a');
+    anchor?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    return { href: anchor?.getAttribute('href'), onmouseover: anchor?.getAttribute('onmouseover'), xss: window.__xss || 0 };
+  });
+  expect(result.onmouseover).toBeNull();
+  expect(result.xss).toBe(0);
+  expect(result.href).toContain('https://example.com/');
+});
+
+test('编辑旧消息同步裁剪持久化历史', async ({ page }) => {
+  await page.evaluate(() => {
+    useRender('main');
+    messages.innerHTML = '';
+    tabs.main.history = [];
+    addUserMessage('需要编辑的原始消息');
+  });
+  await expect(page.locator('.row.user')).toHaveCount(1);
+  await page.locator('.row.user').hover();
+  await expect(page.locator('.row.user .ma-btn')).toBeVisible();
+  await page.locator('.row.user .ma-btn').click();
+  expect(await page.evaluate(() => tabs.main.history.length)).toBe(0);
+  await expect(page.locator('.row.user')).toHaveCount(0);
+  await expect(page.locator('#input')).toHaveValue('需要编辑的原始消息');
+});
+
+test('Esc 关闭记录器弹窗而不中断会话', async ({ page }) => {
+  await page.locator('#tb-recorder').click();
+  await expect(page.locator('#recorder-pop')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#recorder-pop')).toBeHidden();
 });
 
 test('模型列表为空时不显示孤立下拉箭头', async ({ page }) => {

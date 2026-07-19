@@ -71,6 +71,10 @@ gate('REL-003', '关键源码与图标已跟踪', () => {
     'matlab/resources/icons/copilot_24.png',
     'sidecar/src/index.js',
     'sidecar/src/permissionServer.js',
+    'sidecar/src/matlabPermissionProxy.js',
+    'sidecar/src/projectChangeRecorder.js',
+    'matlab/+matlabcopilot/ChangeTransaction.m',
+    'matlab/+matlabcopilot/ModelFileDiff.m',
   ];
   const missing = required.filter((p) => !tracked.has(p));
   assert(missing.length === 0, `关键文件未纳入 Git: ${missing.join(', ')}`);
@@ -127,6 +131,10 @@ if (artifact) {
       'fsroot/matlab/resources/icons/copilot_24.png',
       'fsroot/sidecar/src/index.js',
       'fsroot/sidecar/src/permissionServer.js',
+      'fsroot/sidecar/src/matlabPermissionProxy.js',
+      'fsroot/sidecar/src/projectChangeRecorder.js',
+      'fsroot/matlab/+matlabcopilot/ChangeTransaction.m',
+      'fsroot/matlab/+matlabcopilot/ModelFileDiff.m',
       'metadata/addonProperties.xml',
       'metadata/configuration.xml',
     ];
@@ -138,9 +146,16 @@ if (artifact) {
   });
 
   gate('REL-009', 'MLTBX SHA-256', () => {
-    const hash = crypto.createHash('sha256').update(fs.readFileSync(artifact)).digest('hex').toUpperCase();
+    const hash = crypto.createHash('sha256').update(fs.readFileSync(artifact)).digest('hex').toLowerCase();
     assert(hash.length === 64, '无法生成 SHA-256');
-    return [`SHA256:${hash}`];
+    const sumsFile = path.join(root, 'SHA256SUMS.txt');
+    assert(fs.existsSync(sumsFile), '缺少 SHA256SUMS.txt');
+    const expected = fs.readFileSync(sumsFile, 'utf8').split(/\r?\n/).map((line) => line.trim())
+      .filter(Boolean).map((line) => line.split(/\s+/, 2))
+      .find(([, name]) => name === path.basename(artifact))?.[0]?.toLowerCase();
+    assert(expected, `SHA256SUMS.txt 缺少 ${path.basename(artifact)}`);
+    assert(hash === expected, `安装包 SHA-256 与 SHA256SUMS.txt 不一致: actual=${hash}, expected=${expected}`);
+    return ['SHA256SUMS.txt', `SHA256:${hash}`];
   });
 }
 

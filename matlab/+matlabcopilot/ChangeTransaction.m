@@ -43,16 +43,10 @@ classdef ChangeTransaction
                 rollbackUnavailableReason = "";
             end
 
+            % Transaction setup runs before the model-edit permission decision. It must
+            % remain side-effect free: compiling/updating here can execute callbacks.
             baselineCompileOk = false;
-            baselineCompileMessage = "";
-            try
-                set_param(m, 'SimulationCommand', 'update');
-                baselineCompileOk = true;
-            catch err
-                baselineCompileMessage = string(err.message);
-                rollbackAvailable = false;
-                rollbackUnavailableReason = "修改前模型无法通过更新编译，自动回退已禁用：" + baselineCompileMessage;
-            end
+            baselineCompileMessage = "基线阶段未执行模型更新；修改后验证会在工具执行完成后运行。";
 
             [rules, source, loadError] = matlabcopilot.StandardsChecker.loadRules(cwd);
             findings = matlabcopilot.StandardsChecker.check(m, rules);
@@ -73,7 +67,7 @@ classdef ChangeTransaction
                 'baselineDirty', logical(dirty), ...
                 'before', matlabcopilot.ChangeTransaction.snapshotSummary(before), ...
                 'baselineVerification', struct('compileOk', baselineCompileOk, ...
-                    'compileMessage', char(baselineCompileMessage)), ...
+                    'compileChecked', false, 'compileMessage', char(baselineCompileMessage)), ...
                 'baselineStandards', struct('source', char(source), ...
                     'loadError', char(loadError), 'errors', {cellstr(baselineErrors)}), ...
                 'change', struct(), 'verification', struct(), ...
