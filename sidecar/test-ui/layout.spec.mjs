@@ -107,6 +107,10 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
   await expect(page.locator('#rec-start')).toBeDisabled();
   await expect(page.locator('#rec-stop')).toBeEnabled();
 
+  await page.locator('#rec-task-title').fill('热管理增益调整 - 修订');
+  await page.locator('#rec-task-req').fill('REQ-101, BUG-42');
+  await expect(page.locator('#recorder-pop')).toBeVisible();
+
   await page.evaluate(() => onSidecar({ type: 'project_change', entry: {
     id: '00002-controller.slx', sequence: 2, time: '2026-07-19T10:21:30.000Z',
     source: 'filesystem-save', kind: 'modified', relativePath: 'models/controller.slx',
@@ -114,6 +118,8 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
   } }));
   await expect(page.locator('#recorder-pop')).toContainText('models/controller.slx');
   await expect(page.locator('#recorder-pop')).toContainText('参数 1 / 块 +1 -0');
+  await expect(page.locator('#rec-task-title')).toHaveValue('热管理增益调整 - 修订');
+  await expect(page.locator('#rec-task-req')).toHaveValue('REQ-101, BUG-42');
 
   await page.evaluate(() => onSidecar({ type: 'change_report', report: {
     active: true, sessionId: 'session-ui', changeCount: 1,

@@ -829,6 +829,7 @@ let messages, bubbles, thinks;   // 当前渲染目标(指向某 tab 的 pane/bu
 let config = null, auditLog = null;  // 始终指向「当前活动标签」的配置/审计(切换标签时重指)
 let recorderState = { active: false, changeCount: 0, trackedFileCount: 0 };
 let projectChanges = [];
+let recorderDraft = null;
 let busy = false;          // = 当前活动标签的 busy(发送/停止按钮用)
 let uid = 0;
 const nextId = () => 'u' + (++uid);
@@ -2022,6 +2023,9 @@ function renderAudit() {
 }
 
 function onRecorderState(state) {
+  const popVisible = !$('recorder-pop').classList.contains('hidden');
+  if (popVisible) recorderDraft = recorderTaskPayload();
+  else recorderDraft = null;
   recorderState = { ...recorderState, ...(state || {}) };
   $('tb-recorder').classList.toggle('recording', recorderState.active === true);
   $('tb-recorder').setAttribute('aria-pressed', recorderState.active ? 'true' : 'false');
@@ -2059,7 +2063,7 @@ function recorderKind(entry) {
 function renderRecorder() {
   const pop = $('recorder-pop');
   const active = recorderState.active === true;
-  const task = recorderState.task || {};
+  const task = recorderDraft || recorderState.task || {};
   const assessment = recorderState.assessment || { riskLevel: 'medium', readiness: 'not_ready', openRisks: [] };
   const recent = projectChanges.slice(-20).reverse().map((entry) => {
     const target = entry.relativePath || entry.model || '工程';
@@ -2093,6 +2097,9 @@ function renderRecorder() {
   $('rec-stop').onclick = () => toMatlab('change_recorder_control', { action: 'stop' });
   $('rec-save-task').onclick = () => toMatlab('change_recorder_control', { action: 'configure', task: recorderTaskPayload() });
   $('rec-export').onclick = () => toMatlab('change_recorder_control', { action: 'export' });
+  pop.querySelectorAll('.rec-fields input, .rec-fields textarea').forEach((field) => {
+    field.addEventListener('input', () => { recorderDraft = recorderTaskPayload(); });
+  });
 }
 
 function recorderTaskPayload() {
@@ -2995,6 +3002,7 @@ $('tb-recorder').onclick = (e) => {
   togglePop('recorder-pop');
   toMatlab('change_recorder_control', { action: 'status' });
 };
+$('recorder-pop').addEventListener('click', (e) => e.stopPropagation());
 document.querySelectorAll('#theme-pop .pop-item').forEach((it) => it.onclick = () => { applyThemeChoice(it.dataset.themeChoice); hidePops(); });
 // 选了「随 MATLAB」时,窗口重新获焦就再同步一次(覆盖期间改了 MATLAB 主题的情况)。
 window.addEventListener('focus', () => { if (themeChoice === 'auto') toMatlab('request_theme', {}); });

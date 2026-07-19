@@ -7,6 +7,18 @@
 
 ---
 
+## [0.11.1] — 2026-07-19
+
+### 修复（Fixed）
+
+- 修复工程模型变更记录器弹窗点击任务名称、需求/工单 ID、责任人或描述输入框时，被全局点击监听立即关闭的问题。
+- 文件变更和记录器状态事件触发弹窗重绘时，保留尚未保存的任务草稿，避免编辑内容和焦点被重置。
+
+### 验证（Verified）
+
+- Playwright 22 项桌面/窄屏回归全部通过；记录器场景新增真实输入与异步模型变更后草稿保持断言。
+- Sidecar 72 项 Node 测试、MATLAB R2025b 8 项测试和最终安装包发布门禁全部通过。
+
 ## [0.11.0] — 2026-07-19
 
 ### 新增（Added）
@@ -248,6 +260,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.11.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.1
 [0.11.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.0
 [0.10.3]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.3
 [0.10.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.2

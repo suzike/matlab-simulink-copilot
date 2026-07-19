@@ -6,7 +6,7 @@
 
 停靠式 `uihtml` 面板，自动感知 MATLAB 工程和活动模型，通过本地 sidecar 驱动 Claude Code / Codex，并复用 MATLAB MCP 操作当前 MATLAB 会话。
 
-[![Version](https://img.shields.io/badge/version-0.11.0-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.0)
+[![Version](https://img.shields.io/badge/version-0.11.1-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.1)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/backends-Claude%20Code%20%7C%20Codex-2563eb)
@@ -35,7 +35,11 @@
   <sub>真实 MATLAB 内嵌渲染：规范检查、覆盖率和本地权限确认卡。报告数值为固定协议演示数据，仅用于验证当前 UI 事件链。</sub>
 </div>
 
-## v0.11.0 重点
+## v0.11.1 重点
+
+修复工程模型变更记录器的任务编辑弹窗：点击名称、需求 ID、责任人或描述输入框时不再被全局点击监听关闭；记录期间收到文件变化或状态刷新时，尚未保存的任务草稿保持不变。
+
+v0.11.0 完成的可信工程代理能力继续保留：
 
 本版本将工具从“AI 功能集合”升级为可信工程代理：新增模型变更事务、失败安全回退、工程级持续记录器、模型文件语义差异、任务与需求元数据、确定性验证矩阵、风险和交付就绪度判断，以及可审计的完整证据包。
 
@@ -90,7 +94,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 系统架构
 
 <div align="center">
-  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.11.0 静态系统架构图">
+  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.11.1 静态系统架构图">
 </div>
 
 | 层 | 当前职责 | 关键实现 |
@@ -111,7 +115,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ### 一轮消息的数据流
 
 <div align="center">
-  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.11.0 消息数据流图">
+  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.11.1 消息数据流图">
 </div>
 
 - MATLAB 与 sidecar 使用 localhost TCP + 行分隔 JSON；线上字符串统一转为 ASCII `\uXXXX`，规避 `tcpclient` UTF-8 解码问题。
@@ -123,7 +127,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 功能全景
 
 <div align="center">
-  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.11.0 功能全景图">
+  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.11.1 功能全景图">
 </div>
 
 ### AI 与模型交互
@@ -175,7 +179,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 权限与安全
 
 <div align="center">
-  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.11.0 权限与安全逻辑图">
+  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.11.1 权限与安全逻辑图">
 </div>
 
 | 模式 | 只读操作 | 修改模型/写文件 | 执行 MATLAB / shell / 测试 | MATLAB 本地确定性副作用 |
