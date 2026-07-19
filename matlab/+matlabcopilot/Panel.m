@@ -21,7 +21,7 @@ classdef Panel < handle
         PendingFindHits string = strings(0,1)  % 嗅探到的、属于当前模型的 block 路径(兜底高亮)
         Diag                           % matlabcopilot.Diagnostics:结构化诊断采集
         ActiveConv string = "main"     % 当前活动标签页 convId(随每个 UI 事件更新)
-        DiffPend                       % containers.Map:model_edit 前快照(key=convId|toolId)
+        DiffPend                       % containers.Map:model_edit 前快照与变更事务(key=convId|toolId)
         LocalPermPend                  % containers.Map:本地确定性写/运行动作的待确认回调
         TempFilesByConv                % containers.Map:已发送、待本轮结束后删除的临时附件
         ConfigByConv                   % containers.Map:每个会话的完整后端配置，约束本地动作并初始化 sidecar
@@ -139,6 +139,7 @@ classdef Panel < handle
                 case "close_conv"
                     closingConv = char(getfieldor(data, 'convId', obj.ActiveConv));
                     obj.clearPendingModes(closingConv);
+                    obj.clearPendingTransactions(closingConv, "会话已关闭，工具未返回结果");
                     if obj.NightConv == string(closingConv); obj.cancelNight(false); end
                     obj.clearLocalPermissions(closingConv);
                     obj.clearPendingAttachments(closingConv);
@@ -208,6 +209,12 @@ classdef Panel < handle
                         'convId', char(obj.ActiveConv)));
                 case "get_capabilities"
                     obj.Bridge.send(struct('type', "get_capabilities"));
+                case "change_recorder_control"
+                    obj.Bridge.send(struct('type', "change_recorder_control", ...
+                        'action', char(string(getfieldor(data, 'action', "status"))), ...
+                        'projectRoot', char(string(getfieldor(data, 'projectRoot', ""))), ...
+                        'task', getfieldor(data, 'task', struct()), ...
+                        'convId', char(obj.ActiveConv)));
                 case "slash_command"
                     obj.Bridge.send(struct('type', "slash_command", ...
                         'name', getfieldor(data, 'name', ""), ...
@@ -533,6 +540,30 @@ classdef Panel < handle
                 remove(obj.LocalPermPend, ks{i});
                 obj.emitLocalAudit(ks{i}, action.tool, action.action + "(会话已关闭，未执行)", ...
                     "failed", action.convId);
+            end
+        end
+
+        function clearPendingTransactions(obj, convId, reason)
+            if isempty(obj.DiffPend) || ~isa(obj.DiffPend, 'containers.Map'); return; end
+            target = string(convId);
+            ks = keys(obj.DiffPend);
+            for i = 1:numel(ks)
+                state = obj.DiffPend(ks{i});
+                stateConv = "";
+                if isstruct(state) && isfield(state, 'transaction') && ~isempty(state.transaction)
+                    stateConv = string(state.transaction.convId);
+                else
+                    parts = split(string(ks{i}), '|');
+                    if ~isempty(parts); stateConv = parts(1); end
+                end
+                if strlength(target) > 0 && stateConv ~= target; continue; end
+                remove(obj.DiffPend, ks{i});
+                try
+                    if isstruct(state) && isfield(state, 'transaction') && ~isempty(state.transaction)
+                        matlabcopilot.ChangeTransaction.abandon(state.transaction, reason);
+                    end
+                catch
+                end
             end
         end
 
@@ -1195,6 +1226,11 @@ classdef Panel < handle
                 end
             end
             obj.pushToUi(msg);
+            % 工程记录器先把文件级事件立即推到 UI；模型快照的块级语义分析随后
+            % 只读执行并回写同一条记录，不阻塞或覆盖原始文件证据。
+            if isfield(msg, 'type') && string(msg.type) == "project_change"
+                try, obj.enrichProjectChange(msg); catch, end
+            end
             % 模型语义 diff:旁路观察,放在转发之后——不让快照/截图拖慢 UI 看到工具卡的时间。
             % (tool_use 的前快照仍在本回调内完成,Ask 模式下确认卡保证其先于实际执行。)
             try, obj.trackModelDiff(msg); catch, end
@@ -1459,29 +1495,108 @@ classdef Panel < handle
         end
 
         function trackModelDiff(obj, msg)
-            % 模型语义 diff:tool_use(model_edit)时对目标块做前快照,
-            % tool_result(同 id)时做后快照并对比,有变化则推 model_diff 卡片给 UI。
+            % 模型语义 diff + 可信变更事务：tool_use 时建立前快照和可回退检查点，
+            % tool_result 时做后快照、编译/规范验证，并在安全条件满足时自动回退失败修改。
             % Ask 模式下执行等待确认卡,前快照必然先于实际改动;Auto 模式下事件先于
             % MCP 往返到达,竞态窗口极小,即便偶发也只是"卡片不出现",无副作用。
-            if ~isfield(msg, 'type') || ~isfield(msg, 'id'); return; end
+            if ~isfield(msg, 'type'); return; end
             t = string(msg.type);
             cid = "main";
             if isfield(msg, 'convId') && ~isempty(msg.convId); cid = string(msg.convId); end
+            if any(t == ["result", "error", "interrupted"])
+                obj.clearPendingTransactions(cid, "会话已结束，工具未返回结果");
+                return;
+            end
+            if ~isfield(msg, 'id'); return; end
             key = char(cid + "|" + string(msg.id));
             if t == "tool_use" && isfield(msg, 'name') ...
                     && matlabcopilot.ModelDiff.isEditTool(msg.name) && isfield(msg, 'input')
+                model = matlabcopilot.Context.currentModel();
+                if strlength(model) == 0; return; end
                 paths = matlabcopilot.ModelDiff.candidatePaths(msg.input);
-                if isempty(paths); return; end
-                if obj.DiffPend.Count > 20; remove(obj.DiffPend, keys(obj.DiffPend)); end  % 防泄漏兜底
-                obj.DiffPend(key) = matlabcopilot.ModelDiff.snapshot(paths);
+                if obj.DiffPend.Count > 20
+                    obj.clearPendingTransactions("", "挂起事务数量超过上限，已清理");
+                end
+                if isempty(paths)
+                    % 部分 MCP 编辑使用操作数组或内部 ID，不携带完整 block path；
+                    % 仍建立模型级事务，并用顶层子块清单作为最小 Diff 基线。
+                    before = matlabcopilot.ModelDiff.snapshot(paths, model);
+                else
+                    before = matlabcopilot.ModelDiff.snapshot(paths);
+                end
+                state = struct('before', before, 'transaction', []);
+                try
+                    state.transaction = matlabcopilot.ChangeTransaction.start( ...
+                        model, before, obj.Bridge.Cwd, cid, string(msg.id), msg.input);
+                catch err
+                    obj.pushToUi(struct('type', "status", 'convId', char(cid), ...
+                        'text', "未建立模型变更检查点：" + string(err.message)));
+                end
+                obj.DiffPend(key) = state;
             elseif t == "tool_result" && isKey(obj.DiffPend, key)
-                before = obj.DiffPend(key);
+                state = obj.DiffPend(key);
                 remove(obj.DiffPend, key);
+                if isstruct(state) && isfield(state, 'before')
+                    before = state.before;
+                else
+                    before = state;  % 兼容旧会话中的挂起快照
+                    state = struct('before', before, 'transaction', []);
+                end
                 after = matlabcopilot.ModelDiff.snapshot(before.paths, before.parents);
                 d = matlabcopilot.ModelDiff.compare(before, after);
-                if isempty(d.changes) && isempty(d.added) && isempty(d.removed); return; end
-                obj.pushToUi(matlabcopilot.ModelDiff.buildEvent(cid, string(msg.id), d, before, after));
+                if ~isempty(d.changes) || ~isempty(d.added) || ~isempty(d.removed)
+                    obj.pushToUi(matlabcopilot.ModelDiff.buildEvent(cid, string(msg.id), d, before, after));
+                end
+                if ~isempty(state.transaction)
+                    toolOk = true;
+                    if isfield(msg, 'ok'); toolOk = logical(msg.ok); end
+                    toolMessage = "";
+                    if isfield(msg, 'summary'); toolMessage = string(msg.summary);
+                    elseif isfield(msg, 'message'); toolMessage = string(msg.message); end
+                    try
+                        [tx, ev] = matlabcopilot.ChangeTransaction.finish( ...
+                            state.transaction, after, d, toolOk, toolMessage);
+                        obj.pushToUi(ev);
+                        obj.Bridge.send(struct('type', "change_recorder_entry", ...
+                            'convId', char(cid), ...
+                            'entry', matlabcopilot.ChangeTransaction.buildRecorderEntry(tx)));
+                    catch err
+                        obj.pushToUi(struct('type', "error", 'convId', char(cid), ...
+                            'message', "模型变更事务收尾失败：" + string(err.message)));
+                    end
+                end
             end
+        end
+
+        function enrichProjectChange(obj, msg)
+            if ~isfield(msg, 'entry') || ~isstruct(msg.entry); return; end
+            entry = msg.entry;
+            if string(getfieldor(entry, 'source', "")) ~= "filesystem-save" || ...
+                    string(getfieldor(entry, 'kind', "")) ~= "modified"
+                return;
+            end
+            ext = lower(string(getfieldor(entry, 'extension', "")));
+            if ~any(ext == [".slx", ".mdl"]); return; end
+            semanticState = getfieldor(entry, 'semantic', struct());
+            if isstruct(semanticState) && ...
+                    string(getfieldor(semanticState, 'status', "")) ~= "pending"
+                return;
+            end
+            beforeFile = string(getfieldor(entry, 'beforeSnapshot', ""));
+            afterFile = string(getfieldor(entry, 'afterSnapshot', ""));
+            try
+                semantic = matlabcopilot.ModelFileDiff.compare(beforeFile, afterFile);
+            catch err
+                semantic = struct('status', 'failed', ...
+                    'analyzedAt', matlabcopilot.ModelFileDiff.nowText(), ...
+                    'message', char(string(err.message)), ...
+                    'changes', {{}}, 'added', {{}}, 'removed', {{}}, ...
+                    'blockCountBefore', 0, 'blockCountAfter', 0, 'truncated', false);
+            end
+            obj.Bridge.send(struct('type', "change_recorder_enrich", ...
+                'id', char(string(getfieldor(entry, 'id', ""))), ...
+                'sequence', double(getfieldor(entry, 'sequence', 0)), ...
+                'semantic', semantic));
         end
 
         function handleInsertMode(obj, msg)
@@ -1522,10 +1637,20 @@ classdef Panel < handle
             % 这样可绕开 sendEventToHTMLSource 自动序列化嵌套结构体(含空 string 数组)
             % 时的静默失败,同时保证编码无歧义。
             try
+                obj.recordProjectEvidence(eventStruct);
+            catch
+            end
+            try
                 payload = matlabcopilot.Bridge.asciiJson(jsonencode(eventStruct));
                 sendEventToHTMLSource(obj.HTML, 'sidecar', payload);
             catch
             end
+        end
+
+        function recordProjectEvidence(obj, eventStruct)
+            entry = matlabcopilot.Panel.projectEvidenceEntry(eventStruct);
+            if isempty(entry); return; end
+            obj.Bridge.send(struct('type', "change_recorder_entry", 'entry', entry));
         end
 
         function onClose(obj)
@@ -1533,6 +1658,7 @@ classdef Panel < handle
             % 这样点 X 永远能关掉,绝不会因清理报错而卡住。
             try, if ~isempty(obj.Diag) && isvalid(obj.Diag); delete(obj.Diag); end, catch, end
             try, obj.clearPendingModes(""); catch, end
+            try, obj.clearPendingTransactions("", "面板已关闭，工具未返回结果"); catch, end
             try, obj.clearLocalPermissions(""); catch, end
             try, obj.clearPendingAttachments(""); obj.cleanupTempFiles(""); catch, end
             try, obj.cancelNight(false); catch, end   % 面板关了,夜间定时器一并撤(防孤儿 timer)
@@ -1543,6 +1669,7 @@ classdef Panel < handle
         function delete(obj)
             try, if ~isempty(obj.Diag) && isvalid(obj.Diag); delete(obj.Diag); end, catch, end
             try, obj.clearPendingModes(""); catch, end
+            try, obj.clearPendingTransactions("", "面板已销毁，工具未返回结果"); catch, end
             try, obj.clearLocalPermissions(""); catch, end
             try, obj.clearPendingAttachments(""); obj.cleanupTempFiles(""); catch, end
             try, obj.cancelNight(false); catch, end
@@ -1552,6 +1679,63 @@ classdef Panel < handle
     end
 
     methods (Static)
+        function entry = projectEvidenceEntry(eventStruct)
+            entry = [];
+            if ~isstruct(eventStruct) || ~isfield(eventStruct, 'type'); return; end
+            kind = string(eventStruct.type);
+            if ~any(kind == ["standards_report", "testrun_report", "coverage_report", "req_matrix", "impact_report"]); return; end
+            status = "analyzed"; summary = kind; metrics = struct(); requirements = {};
+            switch kind
+                case "standards_report"
+                    errors = double(getfieldor(eventStruct, 'errors', 0)); warns = double(getfieldor(eventStruct, 'warns', 0));
+                    status = "passed"; if errors > 0; status = "failed"; end
+                    summary = "建模规范检查：错误 " + errors + "，警告 " + warns;
+                    metrics = struct('errors', errors, 'warnings', warns);
+                case "testrun_report"
+                    passed = double(getfieldor(eventStruct, 'passed', 0)); failed = double(getfieldor(eventStruct, 'failed', 0));
+                    status = "passed"; if failed > 0; status = "failed"; end
+                    summary = "Test Manager：通过 " + passed + "，失败 " + failed;
+                    metrics = struct('passed', passed, 'failed', failed);
+                case "coverage_report"
+                    decision = matlabcopilot.Panel.coveragePercent(getfieldor(eventStruct, 'decision', []));
+                    condition = matlabcopilot.Panel.coveragePercent(getfieldor(eventStruct, 'condition', []));
+                    mcdc = matlabcopilot.Panel.coveragePercent(getfieldor(eventStruct, 'mcdc', []));
+                    gapCount = numel(getfieldor(eventStruct, 'gaps', {}));
+                    status = "passed"; if gapCount > 0; status = "failed"; end
+                    summary = "覆盖率：Decision " + decision + "% / Condition " + condition + "% / MCDC " + mcdc + "% / 缺口 " + gapCount;
+                    metrics = struct('decisionPercent', decision, 'conditionPercent', condition, 'mcdcPercent', mcdc, 'gaps', gapCount);
+                case "req_matrix"
+                    total = double(getfieldor(eventStruct, 'total', 0)); covered = double(getfieldor(eventStruct, 'covered', 0));
+                    summary = "需求追溯：已覆盖 " + covered + "/" + total;
+                    metrics = struct('total', total, 'covered', covered, 'uncovered', max(0, total - covered));
+                    rows = getfieldor(eventStruct, 'rows', {}); if isstruct(rows); rows = num2cell(rows); end
+                    for i = 1:numel(rows)
+                        if isstruct(rows{i}) && isfield(rows{i}, 'id')
+                            requirements{end+1} = char(string(rows{i}.id)); %#ok<AGROW>
+                        end
+                    end
+                case "impact_report"
+                    hits = getfieldor(eventStruct, 'hits', {}); token = string(getfieldor(eventStruct, 'token', ""));
+                    summary = "影响扫描：" + token + "，命中 " + numel(hits) + " 处";
+                    metrics = struct('token', char(token), 'hits', numel(hits));
+            end
+            entry = struct('id', char("verification-" + string(matlab.lang.internal.uuid())), ...
+                'time', matlabcopilot.ModelFileDiff.nowText(), 'source', 'deterministic-verification', ...
+                'kind', char(kind), 'model', char(string(getfieldor(eventStruct, 'model', ""))), ...
+                'status', char(status), 'summary', char(summary), 'metrics', metrics, 'requirements', {requirements});
+        end
+
+        function pct = coveragePercent(pair)
+            pct = 0;
+            try
+                values = double(pair);
+                if numel(values) >= 2 && values(2) > 0
+                    pct = round(100 * values(1) / values(2), 1);
+                end
+            catch
+            end
+        end
+
         function r = repoRoot()
             % 本文件位于 <root>/matlab/+matlabcopilot/Panel.m
             here = fileparts(mfilename('fullpath'));        % +matlabcopilot

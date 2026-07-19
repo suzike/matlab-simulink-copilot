@@ -5,6 +5,7 @@ import path from 'node:path';
 import { InMsg, OutMsg, serialize, createLineBuffer, parseLine } from './protocol.js';
 import { isReadonlyTool, isExecuteTool, isSafeIntrospection, INSERT_SYSTEM_PROMPT } from './config.js';
 import { getCapabilities, resolveSlashCommand } from './capabilities.js';
+import { ProjectChangeRecorder } from './projectChangeRecorder.js';
 
 /**
  * sidecar 的网络层:
@@ -28,6 +29,12 @@ export class Server {
     this.audit = [];                 // 操作审计轨迹(破坏性工具调用留痕)
     this._clientServer = null;
     this._controlServer = null;
+    this.changeRecorder = new ProjectChangeRecorder({ root: this.cwd });
+    this.changeRecorder.on('change', (entry) => this.toClient({ type: OutMsg.PROJECT_CHANGE, entry }));
+    this.changeRecorder.on('state', (state) => this.toClient({ type: OutMsg.CHANGE_RECORDER_STATE, state }));
+    this.changeRecorder.on('warning', (warning) => this.toClient({
+      type: OutMsg.STATUS, text: `模型变更记录器: ${warning.message}`,
+    }));
   }
 
   // 取/建一个会话(标签页/分支)。convId 缺省为 'main';新会话可带初始配置(每页独立配置)。
@@ -183,6 +190,7 @@ export class Server {
   }
 
   async stop() {
+    await this.changeRecorder.stop();
     for (const c of this.convs.values()) {
       c.closed = true; c.generation += 1;
       c.dispatchEpoch += 1;
@@ -207,6 +215,7 @@ export class Server {
     });
     sock.on('error', () => {});
     this.toClient({ type: OutMsg.READY });
+    this.toClient({ type: OutMsg.CHANGE_RECORDER_STATE, state: this.changeRecorder.status() });
   }
 
   handleClientLine(line) {
@@ -265,9 +274,40 @@ export class Server {
       case InMsg.SLASH_COMMAND:
         this.handleSlash(msg);
         break;
+      case InMsg.CHANGE_RECORDER_CONTROL:
+        this.handleChangeRecorder(msg.action, msg.projectRoot, msg.task);
+        break;
+      case InMsg.CHANGE_RECORDER_ENTRY:
+        this.changeRecorder.addExternalEntry(msg.entry);
+        break;
+      case InMsg.CHANGE_RECORDER_ENRICH:
+        this.changeRecorder.enrichEntry(msg.id, msg.sequence, msg.semantic);
+        break;
       default:
         break;
     }
+  }
+
+  handleChangeRecorder(action, projectRoot, task) {
+    Promise.resolve().then(async () => {
+      let state;
+      switch (action) {
+        case 'start': state = await this.changeRecorder.start(projectRoot, task); break;
+        case 'stop': state = await this.changeRecorder.stop(); break;
+        case 'configure': state = this.changeRecorder.configureTask(task); break;
+        case 'export': {
+          const report = await this.changeRecorder.exportReport();
+          this.toClient({ type: OutMsg.CHANGE_REPORT, report });
+          state = this.changeRecorder.status();
+          break;
+        }
+        case 'status':
+        default: state = this.changeRecorder.status(); break;
+      }
+      this.toClient({ type: OutMsg.CHANGE_RECORDER_STATE, state });
+    }).catch((error) => this.toClient({
+      type: OutMsg.ERROR, message: `模型变更记录器失败: ${error?.message || error}`,
+    }));
   }
 
   handleSlash(msg) {

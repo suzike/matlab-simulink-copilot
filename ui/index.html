@@ -373,6 +373,7 @@
   /* 规范检查报告卡(复用 .mdiff 骨架)+ 卡片内操作按钮行 */
   .mdiff td.sev-error { color: var(--err); }
   .mdiff td.sev-warn { color: var(--warn); }
+  .mdiff td.sev-ok { color: var(--ok); }
   .mdiff .md-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
   .mdiff .md-actions .ma-btn { font-size: 11px; padding: 3px 10px; }
   .mdiff .ma-btn.act-ai { color: var(--brand2); border-color: color-mix(in srgb, var(--brand2) 45%, transparent); }
@@ -442,6 +443,29 @@
 
   /* ── 变更记录(操作审计)弹窗 ── */
   #audit-pop { width: 340px; max-height: 320px; overflow-y: auto; }
+  #recorder-pop { width: min(380px, calc(100vw - 24px)); max-height: 390px; overflow-y: auto; }
+  #tb-recorder.recording { color: #ef4444; border-color: #ef4444; background: rgba(239,68,68,.1); }
+  .rec-head { display:flex; align-items:center; gap:8px; padding:4px 7px 9px; border-bottom:1px solid var(--border); }
+  .rec-dot { width:8px; height:8px; border-radius:50%; background:var(--faint); flex:0 0 auto; }
+  .rec-dot.live { background:#ef4444; box-shadow:0 0 0 3px rgba(239,68,68,.15); }
+  .rec-summary { min-width:0; flex:1; }
+  .rec-summary b { display:block; font-size:12px; }
+  .rec-summary small { color:var(--muted); font-size:10px; overflow-wrap:anywhere; }
+  .rec-actions { display:flex; gap:5px; padding:8px 7px; }
+  .rec-actions button { min-width:30px; height:27px; border:1px solid var(--border2); border-radius:7px;
+                        background:var(--surface3); color:var(--text); cursor:pointer; }
+  .rec-actions button:disabled { opacity:.4; cursor:default; }
+  .rec-fields { display:grid; gap:5px; padding:8px 7px; border-top:1px solid var(--border); }
+  .rec-fields input, .rec-fields textarea { width:100%; box-sizing:border-box; border:1px solid var(--border2);
+    border-radius:6px; background:var(--surface); color:var(--text); padding:5px 7px; font:11px var(--sans); letter-spacing:0; }
+  .rec-fields textarea { min-height:42px; max-height:72px; resize:vertical; }
+  .rec-risk { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:5px; font-size:9px; }
+  .rec-risk.low { color:var(--ok); background:rgba(34,197,94,.1); }
+  .rec-risk.medium { color:var(--warn); background:rgba(245,158,11,.1); }
+  .rec-risk.high { color:var(--err); background:rgba(239,68,68,.1); }
+  .rec-row { padding:7px 8px; border-top:1px solid var(--border); }
+  .rec-row b { display:block; font-size:11px; overflow-wrap:anywhere; }
+  .rec-row small { color:var(--muted); font-size:10px; }
   .audit-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 8px; }
   .audit-row + .audit-row { border-top: 1px solid var(--border); }
   .audit-st { flex: 0 0 auto; font-size: 12px; }
@@ -597,6 +621,7 @@
       <button class="tbtn" id="tb-slash" title="斜杠命令">/</button>
       <button class="tbtn" id="tb-theme" title="界面主题" data-tip="界面主题:Light 亮色 / Dark 暗色 / 随 MATLAB(跟随 MATLAB 当前明暗主题自动切换)。点击选择。">◑</button>
       <button class="tbtn" id="tb-audit" title="变更记录" data-tip="变更记录(可追溯):列出本会话所有破坏性操作(改模型/跑代码/跑测试)的留痕——时间、工具、改了什么、成功与否。同时按天写入 ~/.matlab-copilot/audit-*.jsonl 持久存档。">📋</button>
+      <button class="tbtn" id="tb-recorder" title="模型变更记录器" data-tip="工程级持续记录器:建立工程文件基线，持续保存模型、数据字典、需求和 MATLAB 文件每次保存前后的快照；AI 模型编辑会直接写入同一时间线。">●</button>
       <button class="tbtn" id="tb-export" title="导出当前对话为 Markdown 文件">⬇</button>
       <button class="tbtn" id="tb-insert" data-tip="回答中插入新需求的处理方式:【⏳ 队列】= 排队,等当前回答结束再自动发出;【⚡ 引导】= 立即中断当前回答,改按新输入回复。点击切换。(回答中按 Esc 可随时中断)">⏳</button>
       <div class="quick-modes" role="group" aria-label="快捷功能显示方式">
@@ -675,6 +700,7 @@
       <button class="pop-item" data-theme-choice="auto"><span class="pi-ic">🖥</span><div class="pi-txt"><b>随 MATLAB</b><small>跟随 MATLAB 当前明暗主题</small></div><span class="pi-chk">✓</span></button>
     </div>
     <div id="audit-pop" class="popup hidden"></div>
+    <div id="recorder-pop" class="popup hidden"></div>
   </footer>
   <div id="tip"></div>
   <!-- 批注浮框 / 队列面板:必须放在 footer 外(footer 的 backdrop-filter 会创建包含块,使内部 position:fixed 相对 footer 而非视口) -->
@@ -801,6 +827,8 @@ let activeConv = 'main';
 let tabSeq = 1;
 let messages, bubbles, thinks;   // 当前渲染目标(指向某 tab 的 pane/bubbles/thinks)
 let config = null, auditLog = null;  // 始终指向「当前活动标签」的配置/审计(切换标签时重指)
+let recorderState = { active: false, changeCount: 0, trackedFileCount: 0 };
+let projectChanges = [];
 let busy = false;          // = 当前活动标签的 busy(发送/停止按钮用)
 let uid = 0;
 const nextId = () => 'u' + (++uid);
@@ -917,6 +945,7 @@ function addRestoreDivider() {
 function setStatus(t) { $('status').textContent = t; }
 function scrollDown() { if (messages) messages.scrollTop = messages.scrollHeight; }
 function escapeHtml(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+function escapeAttr(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 // ── 轻量 Markdown 渲染器(自包含、无 CDN、流式安全)──────────────────────────
 const Z0 = String.fromCharCode(0xE000), Z1 = String.fromCharCode(0xE001);
@@ -1325,6 +1354,9 @@ function onSidecar(msg) {
     case 'ready': setStatus('已就绪'); $('sdot').className = 'sdot live'; return;
     case 'theme': if (themeChoice === 'auto') paintTheme(msg.mode === 'light' ? 'light' : 'dark'); return;
     case 'capabilities': applyCaps(msg); return;
+    case 'change_recorder_state': onRecorderState(msg.state); return;
+    case 'project_change': onProjectChange(msg.entry); return;
+    case 'change_report': onChangeReport(msg.report); return;
   }
   // 标签页相关事件:把渲染指针指向该会话的 pane,状态/busy 只在它是当前活动标签时影响顶栏。
   const cid = msg.convId || 'main';
@@ -1362,6 +1394,7 @@ function onSidecar(msg) {
     case 'model_diff': addModelDiffCard(msg);          // model_edit 前后语义对比卡(MATLAB 端生成)
       if (++mdiffCount === 3) showNudge('mdiff3', 'AI 已改模型 3 处,建议复核一遍建模规范', '✔ 标准检查', () => $('btn-check').click());
       break;
+    case 'change_transaction': addChangeTransactionCard(msg); break; // 检查点、验证与回退结果
     case 'standards_report': addStandardsCard(msg); break;   // 本地建模规范检查报告卡
     case 'testrun_report': addTestRunCard(msg); break;        // Test Manager 本地运行结果卡
     case 'coverage_report': addCoverageCard(msg); break;      // 覆盖率缺口卡
@@ -1482,6 +1515,38 @@ function addModelDiffCard(msg) {
     '<div class="body">' + body + '</div>';
   el.querySelector('.head').onclick = () => el.classList.toggle('open');
   el.querySelectorAll('.md-shot img').forEach((img) => { img.onclick = () => img.classList.toggle('zoom'); });  // 点击放大/还原
+  clearWelcome(); messages.appendChild(el); scrollDown();
+}
+
+// ── 可信模型变更事务：显示编译、规范门禁、自动回退和机器可读证据位置 ──
+function addChangeTransactionCard(msg) {
+  const states = {
+    verified: ['✓', '验证通过', 'var(--ok)'],
+    rolled_back: ['↶', '失败，已回退', 'var(--warn)'],
+    rollback_failed: ['✕', '回退失败', 'var(--err)'],
+    manual_recovery_required: ['!', '需要人工恢复', 'var(--err)']
+  };
+  const st = states[msg.status] || ['…', String(msg.status || '未知'), 'var(--text2)'];
+  const row = (name, ok, detail) => '<tr><td>' + escapeHtml(name) + '</td><td class="sev-' + (ok ? 'ok' : 'error') + '">' +
+    (ok ? '✓ 通过' : '✕ 未通过') + '</td><td>' + escapeHtml(detail || '') + '</td></tr>';
+  let body = '<table><tr><th>门禁</th><th>状态</th><th>说明</th></tr>' +
+    row('模型编译/更新', !!msg.compileOk, msg.compileMessage || '') +
+    row('新增规范错误', !!msg.standardsOk, (msg.newStandardErrors || []).join('\n')) + '</table>';
+  if (msg.rollbackAttempted || msg.rollbackMessage) {
+    body += '<div class="md-chips"><span class="md-chip ' + (msg.rolledBack ? 'add' : 'del') + '">' +
+      (msg.rolledBack ? '↶ 已恢复检查点' : '回退状态') + '</span></div>' +
+      '<div style="color:var(--text2);margin-top:6px;">' + escapeHtml(msg.rollbackMessage || '') + '</div>';
+  } else if (!msg.rollbackAvailable) {
+    body += '<div style="color:var(--warn);margin-top:8px;">' +
+      escapeHtml(msg.rollbackUnavailableReason || '本轮未启用自动回退。') + '</div>';
+  }
+  body += '<div class="lbl" style="margin-top:10px;">运行证据</div><pre>' + escapeHtml(msg.manifestFile || '') + '</pre>';
+  const el = document.createElement('div');
+  el.className = 'mdiff open';
+  el.innerHTML = '<div class="head"><span class="mdicon" style="color:' + st[2] + '">' + st[0] + '</span>' +
+    '<span>可信变更事务 · ' + escapeHtml(String(msg.model || '')) + '</span>' +
+    '<span class="mdsum">' + escapeHtml(st[1]) + '</span></div><div class="body">' + body + '</div>';
+  el.querySelector('.head').onclick = () => el.classList.toggle('open');
   clearWelcome(); messages.appendChild(el); scrollDown();
 }
 
@@ -1954,6 +2019,85 @@ function renderAudit() {
   }).join('');
   pop.innerHTML = '<div class="pop-title">变更记录<span class="pop-hint">' + auditLog.length + '</span></div>' +
     (auditLog.length ? rows : '<div class="audit-empty">本会话暂无破坏性操作</div>');
+}
+
+function onRecorderState(state) {
+  recorderState = { ...recorderState, ...(state || {}) };
+  $('tb-recorder').classList.toggle('recording', recorderState.active === true);
+  $('tb-recorder').setAttribute('aria-pressed', recorderState.active ? 'true' : 'false');
+  $('tb-recorder').title = recorderState.active
+    ? '模型变更记录中 · ' + (recorderState.changeCount || 0) + ' 项'
+    : '模型变更记录器';
+  if (!$('recorder-pop').classList.contains('hidden')) renderRecorder();
+}
+
+function onProjectChange(entry) {
+  if (!entry || !entry.id) return;
+  const i = projectChanges.findIndex((item) => item.id === entry.id && item.sequence === entry.sequence);
+  if (i >= 0) projectChanges[i] = entry;
+  else {
+    projectChanges.push(entry);
+    if (entry.source === 'deterministic-verification') recorderState.evidenceCount = Number(recorderState.evidenceCount || 0) + 1;
+    else recorderState.changeCount = Number(recorderState.changeCount || 0) + 1;
+  }
+  onRecorderState(recorderState);
+}
+
+function onChangeReport(report) {
+  recorderState = { ...recorderState, ...(report || {}) };
+  setStatus(report && report.evidenceIndexFile ? '任务证据包已导出' : '变更报告导出完成');
+  renderRecorder();
+}
+
+function recorderKind(entry) {
+  const labels = { added: '新增', modified: '修改', deleted: '删除', model_edit: 'AI 模型编辑',
+    standards_report: '规范检查', testrun_report: '测试结果', coverage_report: '覆盖率',
+    req_matrix: '需求追溯', impact_report: '影响分析' };
+  return labels[entry.kind] || entry.kind || '变更';
+}
+
+function renderRecorder() {
+  const pop = $('recorder-pop');
+  const active = recorderState.active === true;
+  const task = recorderState.task || {};
+  const assessment = recorderState.assessment || { riskLevel: 'medium', readiness: 'not_ready', openRisks: [] };
+  const recent = projectChanges.slice(-20).reverse().map((entry) => {
+    const target = entry.relativePath || entry.model || '工程';
+    const time = String(entry.time || '').slice(11, 19);
+    const delta = entry.textDelta ? ' · +' + entry.textDelta.addedLines + '/-' + entry.textDelta.removedLines : '';
+    const semantic = entry.semantic?.status === 'analyzed'
+      ? ' · 参数 ' + toArr(entry.semantic.changes).length + ' / 块 +' + toArr(entry.semantic.added).length + ' -' + toArr(entry.semantic.removed).length
+      : (entry.semantic?.status === 'pending' ? ' · 语义分析中'
+        : (entry.semantic?.status === 'failed' ? ' · 语义分析失败' : ''));
+    return '<div class="rec-row"><b>' + escapeHtml(target) + '</b><small>' +
+      escapeHtml(time + ' · ' + recorderKind(entry) + ' · ' + (entry.source || '') + delta + semantic) + '</small></div>';
+  }).join('');
+  const folder = recorderState.recordDir || '启动后创建独立证据目录';
+  pop.innerHTML = '<div class="pop-title">模型变更记录器<span class="pop-hint">' + Number(recorderState.changeCount || 0) + '</span></div>' +
+    '<div class="rec-head"><span class="rec-dot ' + (active ? 'live' : '') + '"></span><div class="rec-summary"><b>' +
+    (active ? escapeHtml(task.title || '正在记录当前工程') : '记录器未启动') +
+    '<span class="rec-risk ' + escapeAttr(assessment.riskLevel || 'medium') + '">' + escapeHtml(assessment.readiness || 'not_ready') +
+    '</span></b><small>' + escapeHtml(folder) + '</small></div></div>' +
+    '<div class="rec-fields"><input id="rec-task-title" maxlength="200" placeholder="任务名称" value="' + escapeAttr(task.title === '未命名变更任务' ? '' : (task.title || '')) + '">' +
+    '<input id="rec-task-req" maxlength="500" placeholder="需求/工单 ID，逗号分隔" value="' + escapeAttr(toArr(task.requirementIds).join(', ')) + '">' +
+    '<input id="rec-task-owner" maxlength="100" placeholder="责任人" value="' + escapeAttr(task.owner || '') + '">' +
+    '<textarea id="rec-task-desc" maxlength="1000" placeholder="变更目的与范围">' + escapeHtml(task.description || '') + '</textarea></div>' +
+    '<div class="rec-actions"><button id="rec-start" title="开始记录"' + (active ? ' disabled' : '') + '>▶</button>' +
+    '<button id="rec-stop" title="停止记录"' + (!active ? ' disabled' : '') + '>■</button>' +
+    '<button id="rec-save-task" title="保存任务信息"' + (!recorderState.sessionId ? ' disabled' : '') + '>✓</button>' +
+    '<button id="rec-export" title="导出任务证据包"' + (!recorderState.sessionId ? ' disabled' : '') + '>⬇</button></div>' +
+    (recent || '<div class="audit-empty">尚未记录到工程变更</div>');
+  $('rec-start').onclick = () => toMatlab('change_recorder_control', {
+    action: 'start', projectRoot: activeTab()?.context?.projectInfo?.root || '', task: recorderTaskPayload()
+  });
+  $('rec-stop').onclick = () => toMatlab('change_recorder_control', { action: 'stop' });
+  $('rec-save-task').onclick = () => toMatlab('change_recorder_control', { action: 'configure', task: recorderTaskPayload() });
+  $('rec-export').onclick = () => toMatlab('change_recorder_control', { action: 'export' });
+}
+
+function recorderTaskPayload() {
+  return { title: $('rec-task-title')?.value || '', requirementIds: $('rec-task-req')?.value || '',
+    owner: $('rec-task-owner')?.value || '', description: $('rec-task-desc')?.value || '' };
 }
 
 function clearContextDisplay() {
@@ -2845,6 +2989,12 @@ function reflectTheme() {
 }
 $('tb-theme').onclick = (e) => { e.stopPropagation(); togglePop('theme-pop'); };
 $('tb-audit').onclick = (e) => { e.stopPropagation(); renderAudit(); togglePop('audit-pop'); };
+$('tb-recorder').onclick = (e) => {
+  e.stopPropagation();
+  renderRecorder();
+  togglePop('recorder-pop');
+  toMatlab('change_recorder_control', { action: 'status' });
+};
 document.querySelectorAll('#theme-pop .pop-item').forEach((it) => it.onclick = () => { applyThemeChoice(it.dataset.themeChoice); hidePops(); });
 // 选了「随 MATLAB」时,窗口重新获焦就再同步一次(覆盖期间改了 MATLAB 主题的情况)。
 window.addEventListener('focus', () => { if (themeChoice === 'auto') toMatlab('request_theme', {}); });

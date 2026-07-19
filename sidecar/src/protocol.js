@@ -12,6 +12,9 @@ export const InMsg = Object.freeze({
   GET_CAPABILITIES: 'get_capabilities', // { type } 请求可用后端/模型/模式/命令
   SLASH_COMMAND: 'slash_command',     // { type, name, args, context, convId?, config? } 执行斜杠命令
   CLOSE_CONV: 'close_conv',           // { type, convId } 关闭一个会话(标签页),停其后端
+  CHANGE_RECORDER_CONTROL: 'change_recorder_control', // { type, action:start|stop|status|configure|export, task? }
+  CHANGE_RECORDER_ENTRY: 'change_recorder_entry',     // { type, entry } MATLAB 事务写入工程时间线
+  CHANGE_RECORDER_ENRICH: 'change_recorder_enrich',   // { type, id, sequence, semantic } MATLAB 快照语义结果
 });
 
 // ── 出站(sidecar → UI/MATLAB)────────────────────────────────────────────
@@ -33,6 +36,9 @@ export const OutMsg = Object.freeze({
   CAPABILITIES: 'capabilities',       // { type, backends, models, modes, efforts, commands, current }
   CONFIG_CHANGED: 'config_changed',   // { type, config } 切换已生效
   AUDIT: 'audit',                     // { type, entry:{id,time,tool,action,status,backend,mode} } 操作审计轨迹
+  CHANGE_RECORDER_STATE: 'change_recorder_state', // { type, state } 工程记录器状态
+  PROJECT_CHANGE: 'project_change',               // { type, entry } 工程文件/AI 事务变更点
+  CHANGE_REPORT: 'change_report',                 // { type, report } 导出报告路径与统计
 });
 
 // 把一行文本解析成消息对象;非法行返回 null(调用方应跳过)。

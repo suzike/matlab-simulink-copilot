@@ -7,6 +7,31 @@
 
 ---
 
+## [0.11.0] — 2026-07-19
+
+### 新增（Added）
+
+- 新增 `ChangeTransaction` 可信模型变更事务：`model_edit` 前创建模型检查点并记录基线，执行后强制更新编译和新增规范错误检查。
+- 对修改前已保存且干净、基线可编译的模型，验证失败时自动恢复检查点；存在未保存内容时禁止自动回退，避免覆盖用户工作。
+- 每次事务在 `~/.matlab-copilot/runs/<runId>/manifest.json` 写入机器可读证据，敏感字段自动脱敏，UI 显示验证和回退结果卡。
+- 新增工程级 `ProjectChangeRecorder`：用户显式启动后建立当前工程基线，持续记录 `.slx/.mdl/.sldd/.slreqx/.mldatx/.m/.mlx/.mat` 及常用工程文本文件的新增、修改和删除。
+- 每个保存事件保留前后快照、SHA-256、文件大小和文本行变化摘要；AI `model_edit` 事务同步写入同一工程时间线。
+- 工具栏新增独立录制入口，可查看状态和最近记录，并导出 `change-report.md`、`manifest.json`、`changes.jsonl` 完整证据包。
+- 新增 `ModelFileDiff`：人工或脚本保存 `.slx/.mdl` 后，隔离加载记录器的前后快照并提取块参数变化、新增块和删除块；结果原位富化同一变更点，不产生重复记录。
+- 语义分析结果以独立 enrichment 事件追加到 JSONL；加载失败只标记失败原因，不阻断文件级快照、哈希和后续持续记录。
+- 记录会话升级为工程变更任务，支持任务名称、需求/工单 ID、责任人和变更说明，并可在记录期间更新。
+- 建模规范、Test Manager、覆盖率、需求矩阵和影响扫描的确定性结果自动汇入验证矩阵；变更数量与验证证据数量分别统计。
+- 最终证据包新增 `evidence-index.json` 与 `traceability.json`，汇总影响文件/模型/块、验证状态、未闭环风险、交付判断和按模型关联的定向测试建议。
+- 只有模型语义分析完成、无失败项、规范检查通过且 Test Manager 通过时，模型变更任务才会判为 `ready`。
+
+### 验证（Verified）
+
+- MATLAB R2025b：8 项测试通过，覆盖事务验证/回退/脏模型/中断、保存快照语义对比、覆盖率摘要及确定性证据映射辅助逻辑。
+- Sidecar：72 项 Node 测试全部通过，新增任务元数据、需求追溯、验证矩阵、风险判断、证据索引及停止前最终对账覆盖。
+- UI：22 项 Playwright 桌面/窄屏回归通过，新增工程记录器状态、时间线和报告反馈覆盖。
+- 发布包：`MATLAB-Copilot.mltbx` 使用 `ToolboxVersion=0.11.0` 构建，静态发布门禁 9/9、MATLAB 最终包验收通过，并生成 SHA-256。
+- README 两张主界面图由当前 `ui/index.html` 全屏浏览器预览重新生成，覆盖可信变更事务和工程模型变更记录器。
+
 ## [0.10.3] — 2026-07-19
 
 本补丁版本解决 GitHub Issue #1 中 MATLAB R2023b / 高显示缩放下底部功能区占用过大的问题，并完成快捷功能的响应式三态交互。
@@ -223,6 +248,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.11.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.0
 [0.10.3]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.3
 [0.10.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.2
 [0.10.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.10.1

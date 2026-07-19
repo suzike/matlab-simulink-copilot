@@ -18,6 +18,7 @@ async function seedRepresentativeState(page) {
     onSidecar({ type: 'assistant_start', convId: 'main', id: 'answer-layout' });
     onSidecar({ type: 'assistant_delta', convId: 'main', id: 'answer-layout', text: '## 检查结果\n\n- 模型接口已读取\n- 权限路径保持 Ask / Auto / Plan 隔离\n\n```matlab\nresult = model_check("ThermalManagementController");\n```' });
     onSidecar({ type: 'assistant_stop', convId: 'main', id: 'answer-layout' });
+    onSidecar({ type: 'change_transaction', convId: 'main', runId: 'run-layout', model: 'ThermalManagementController', status: 'verified', rollbackAvailable: true, rollbackAttempted: false, rolledBack: false, rollbackMessage: '', compileOk: true, compileMessage: '', standardsOk: true, newStandardErrors: [], manifestFile: 'C:/Users/test/.matlab-copilot/runs/run-layout/manifest.json' });
     onSidecar({ type: 'result', convId: 'main', ok: true, costUsd: 0.01 });
   });
 }
@@ -60,6 +61,66 @@ test('亮色和暗色主题均可正常渲染', async ({ page }) => {
     const problems = await layoutProblems(page);
     expect(problems.document[0], `${theme}: ${JSON.stringify(problems, null, 2)}`).toBeLessThanOrEqual(problems.viewport[0] + 1);
   }
+});
+
+test('可信变更事务卡展示验证与回退状态', async ({ page }) => {
+  const card = page.locator('.mdiff').filter({ hasText: '可信变更事务' });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('验证通过');
+  await expect(card).toContainText('模型编译/更新');
+  await expect(card).toContainText('manifest.json');
+
+  await page.evaluate(() => onSidecar({
+    type: 'change_transaction', convId: 'main', runId: 'run-rollback',
+    model: 'ThermalManagementController', status: 'rolled_back',
+    rollbackAvailable: true, rollbackAttempted: true, rolledBack: true,
+    rollbackMessage: '验证失败，已恢复修改前检查点。',
+    compileOk: false, compileMessage: '参数无法解析', standardsOk: true,
+    newStandardErrors: [], manifestFile: 'C:/runs/run-rollback/manifest.json'
+  }));
+  const rollback = page.locator('.mdiff').filter({ hasText: '失败，已回退' });
+  await expect(rollback).toContainText('已恢复检查点');
+});
+
+test('工程模型变更记录器展示状态、时间线与报告路径', async ({ page }) => {
+  await page.evaluate(() => {
+    onSidecar({ type: 'change_recorder_state', state: {
+      active: true, sessionId: 'session-ui', changeCount: 1, trackedFileCount: 12,
+      recordDir: 'C:/Users/test/.matlab-copilot/change-records/project/session-ui',
+      task: { title: '热管理增益调整', requirementIds: ['REQ-101'], owner: 'Lin', description: '修正高温工况' },
+      assessment: { riskLevel: 'medium', readiness: 'not_ready', openRisks: ['尚无测试结果'] },
+    } });
+    onSidecar({ type: 'project_change', entry: {
+      id: '00001-controller.m', sequence: 1, time: '2026-07-19T10:20:30.000Z',
+      source: 'filesystem-save', kind: 'modified', relativePath: 'src/controller.m',
+      textDelta: { addedLines: 2, removedLines: 1, firstChangedLine: 8 },
+    } });
+  });
+  await expect(page.locator('#tb-recorder')).toHaveClass(/recording/);
+  await page.locator('#tb-recorder').click();
+  await expect(page.locator('#recorder-pop')).toBeVisible();
+  await expect(page.locator('#recorder-pop')).toContainText('热管理增益调整');
+  await expect(page.locator('#recorder-pop')).toContainText('not_ready');
+  await expect(page.locator('#rec-task-req')).toHaveValue('REQ-101');
+  await expect(page.locator('#recorder-pop')).toContainText('src/controller.m');
+  await expect(page.locator('#recorder-pop')).toContainText('+2/-1');
+  await expect(page.locator('#rec-start')).toBeDisabled();
+  await expect(page.locator('#rec-stop')).toBeEnabled();
+
+  await page.evaluate(() => onSidecar({ type: 'project_change', entry: {
+    id: '00002-controller.slx', sequence: 2, time: '2026-07-19T10:21:30.000Z',
+    source: 'filesystem-save', kind: 'modified', relativePath: 'models/controller.slx',
+    semantic: { status: 'analyzed', changes: [{ block: 'Control/Gain', param: 'Gain', before: '1', after: '2' }], added: ['Control/Limit'], removed: [] },
+  } }));
+  await expect(page.locator('#recorder-pop')).toContainText('models/controller.slx');
+  await expect(page.locator('#recorder-pop')).toContainText('参数 1 / 块 +1 -0');
+
+  await page.evaluate(() => onSidecar({ type: 'change_report', report: {
+    active: true, sessionId: 'session-ui', changeCount: 1,
+    reportFile: 'C:/records/session-ui/change-report.md',
+    evidenceIndexFile: 'C:/records/session-ui/evidence-index.json',
+  } }));
+  await expect(page.locator('#status')).toHaveText('任务证据包已导出');
 });
 
 test('模型列表为空时不显示孤立下拉箭头', async ({ page }) => {
