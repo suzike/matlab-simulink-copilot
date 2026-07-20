@@ -87,7 +87,10 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
     onSidecar({ type: 'change_recorder_state', state: {
       active: true, sessionId: 'session-ui', changeCount: 1, trackedFileCount: 12,
       recordDir: 'C:/Users/test/.matlab-copilot/change-records/project/session-ui',
-      task: { title: '热管理增益调整', requirementIds: ['REQ-101'], owner: 'Lin', description: '修正高温工况' },
+      task: { title: '热管理增益调整', requirementIds: ['REQ-101'], owner: 'Lin', description: '修正高温工况',
+        plannedModels: ['ThermalManagementController'], plannedFiles: ['models/controller.slx'],
+        acceptanceCriteria: ['Test Manager 通过', '规范检查通过'] },
+      workflow: { stage: 'draft' },
       assessment: { riskLevel: 'medium', readiness: 'not_ready', openRisks: ['尚无测试结果'] },
     } });
     onSidecar({ type: 'project_change', entry: {
@@ -99,9 +102,20 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
   await expect(page.locator('#tb-recorder')).toHaveClass(/recording/);
   await page.locator('#tb-recorder').click();
   await expect(page.locator('#recorder-pop')).toBeVisible();
+  const popupBounds = await page.evaluate(() => {
+    const popup = document.querySelector('#recorder-pop').getBoundingClientRect();
+    const footer = document.querySelector('footer').getBoundingClientRect();
+    return { popupBottom: popup.bottom, footerTop: footer.top };
+  });
+  expect(popupBounds.popupBottom).toBeLessThanOrEqual(popupBounds.footerTop - 7);
   await expect(page.locator('#recorder-pop')).toContainText('热管理增益调整');
   await expect(page.locator('#recorder-pop')).toContainText('not_ready');
   await expect(page.locator('#rec-task-req')).toHaveValue('REQ-101');
+  await expect(page.locator('#rec-task-models')).toHaveValue('ThermalManagementController');
+  await expect(page.locator('#rec-task-files')).toHaveValue('models/controller.slx');
+  await expect(page.locator('#rec-task-accept')).toHaveValue('Test Manager 通过\n规范检查通过');
+  await expect(page.locator('#rec-approve')).toBeEnabled();
+  await expect(page.locator('#rec-execute')).toBeDisabled();
   await expect(page.locator('#recorder-pop')).toContainText('src/controller.m');
   await expect(page.locator('#recorder-pop')).toContainText('+2/-1');
   await expect(page.locator('#rec-start')).toBeDisabled();
@@ -125,6 +139,11 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
   expect(await page.locator('#rec-task-title').evaluate((el) => el.selectionStart)).toBe(4);
   await expect(page.locator('#rec-task-title')).toHaveValue('热管理增益调整 - 修订');
   await expect(page.locator('#rec-task-req')).toHaveValue('REQ-101, BUG-42');
+
+  await page.evaluate(() => onSidecar({ type: 'change_recorder_state', state: {
+    active: true, workflow: { stage: 'executing' }, changeCount: 2,
+  } }));
+  await expect(page.locator('#rec-validate')).toBeEnabled();
 
   await page.evaluate(() => onSidecar({ type: 'change_report', report: {
     active: true, sessionId: 'session-ui', changeCount: 1,
@@ -286,6 +305,50 @@ test('上下文和附件按 convId 隔离', async ({ page }) => {
   await page.evaluate(() => switchTab('t-isolation'));
   await expect(page.locator('#attachments')).toContainText('second-updated.json');
   await expect(page.locator('#ctx-pop')).toContainText('SecondModelUpdated');
+});
+
+test('工程切换时会话历史按工程隔离并可往返恢复', async ({ page }) => {
+  const state = await page.evaluate(() => {
+    renderContext({ projectInfo: { root: 'C:\\Work\\ProjectA' }, currentModel: 'ModelA' });
+    useRender('main');
+    addUserMessage('Project A only');
+    saveSession();
+
+    renderContext({ projectInfo: { root: 'C:\\Work\\ProjectB' }, currentModel: 'ModelB' });
+    const bBefore = tabs.main.history.map((item) => item.html).join('\n');
+    useRender('main');
+    addUserMessage('Project B only');
+    saveSession();
+
+    renderContext({ projectInfo: { root: 'c:/work/projecta/' }, currentModel: 'ModelA' });
+    return {
+      key: projectKey,
+      bBefore,
+      aHistory: tabs.main.history.map((item) => item.html).join('\n'),
+      storedA: localStorage.getItem('mc-session-c:/work/projecta'),
+      storedB: localStorage.getItem('mc-session-c:/work/projectb'),
+    };
+  });
+  expect(state.key).toBe('c:/work/projecta');
+  expect(state.bBefore).not.toContain('Project A only');
+  expect(state.aHistory).toContain('Project A only');
+  expect(state.aHistory).not.toContain('Project B only');
+  expect(state.storedA).toContain('Project A only');
+  expect(state.storedB).toContain('Project B only');
+});
+
+test('关闭会话墓碑保持固定容量', async ({ page }) => {
+  const state = await page.evaluate(() => {
+    for (let i = 0; i < CLOSED_CONV_CAP + 100; i++) rememberClosedConv('closed-' + i);
+    return {
+      size: closedConvs.size,
+      oldest: closedConvs.has('closed-0'),
+      newest: closedConvs.has('closed-' + (CLOSED_CONV_CAP + 99)),
+    };
+  });
+  expect(state.size).toBe(256);
+  expect(state.oldest).toBe(false);
+  expect(state.newest).toBe(true);
 });
 
 test('Fork 附件只渲染到对应分支', async ({ page }) => {

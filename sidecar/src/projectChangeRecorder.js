@@ -15,6 +15,18 @@ const IGNORED_DIRS = new Set([
 ]);
 
 export class ProjectChangeRecorder extends EventEmitter {
+  static inspectEvidencePackage(recordDir) {
+    const root = path.resolve(String(recordDir || ''));
+    const readJson = (name) => JSON.parse(fs.readFileSync(path.join(root, name), 'utf8'));
+    return {
+      recordDir: root,
+      manifest: readJson('manifest.json'),
+      evidenceIndex: readJson('evidence-index.json'),
+      traceability: readJson('traceability.json'),
+      integrity: verifyIntegrity(root),
+    };
+  }
+
   constructor({ root, storageRoot, debounceMs = 900, maxFileBytes = 50 * 1024 * 1024 } = {}) {
     super();
     this.root = path.resolve(root || process.cwd());
@@ -35,7 +47,9 @@ export class ProjectChangeRecorder extends EventEmitter {
     this.poller = null;
     this.pending = new Map();
     this.reportFile = null;
+    this.recovered = false;
     this.task = sanitizeTask();
+    this.workflow = defaultWorkflow();
     this.operation = Promise.resolve();
   }
 
@@ -52,6 +66,7 @@ export class ProjectChangeRecorder extends EventEmitter {
       this.phase = 'idle';
       throw new Error(`工程目录不存在: ${this.root}`);
     }
+    if (await this.recoverLatest(task)) return this.status();
     this.sessionId = makeSessionId();
     this.startedAt = new Date().toISOString();
     this.stoppedAt = null;
@@ -59,7 +74,9 @@ export class ProjectChangeRecorder extends EventEmitter {
     this.files = new Map();
     this.sequence = 0;
     this.reportFile = null;
+    this.recovered = false;
     this.task = sanitizeTask(task);
+    this.workflow = defaultWorkflow();
     const projectKey = crypto.createHash('sha256').update(this.root.toLowerCase()).digest('hex').slice(0, 16);
     this.recordDir = path.join(this.storageRoot, projectKey, this.sessionId);
     fs.mkdirSync(path.join(this.recordDir, 'shadow'), { recursive: true });
@@ -120,16 +137,88 @@ export class ProjectChangeRecorder extends EventEmitter {
       trackedFileCount: this.files.size,
       recordDir: this.recordDir,
       reportFile: this.reportFile,
+      recovered: this.recovered,
       task: this.task,
+      workflow: this.workflow,
       assessment: buildAssessment(this.entries, this.files, this.task),
     };
   }
 
   configureTask(value) {
-    this.task = sanitizeTask(value);
+    const next = sanitizeTask(value);
+    const scopeChanged = JSON.stringify([this.task.plannedModels, this.task.plannedFiles, this.task.acceptanceCriteria])
+      !== JSON.stringify([next.plannedModels, next.plannedFiles, next.acceptanceCriteria]);
+    this.task = next;
+    if (scopeChanged && this.workflow.stage !== 'draft') {
+      this.workflow = { ...defaultWorkflow(), history: [...this.workflow.history,
+        workflowEvent('draft', '范围变更，原批准失效')] };
+    }
     this.writeManifest();
     this.emit('state', this.status());
     return this.status();
+  }
+
+  transitionWorkflow(action) {
+    const current = this.workflow.stage;
+    const allowed = { approve: ['draft'], execute: ['approved'], validate: ['executing', 'blocked'] };
+    if (!this.active) throw new Error('记录器未启动，不能推进变更集');
+    if (!allowed[action]?.includes(current)) throw new Error(`变更集不能从 ${current} 执行 ${action}`);
+    if (action === 'approve') {
+      if (this.task.title === '未命名变更任务') throw new Error('批准前必须填写任务名称');
+      if (!this.task.plannedModels.length && !this.task.plannedFiles.length) throw new Error('批准前必须填写计划模型或文件范围');
+    }
+    if (action === 'validate' && !this.entries.some((entry) => entry.source !== 'deterministic-verification')) {
+      throw new Error('尚无已执行变更，不能进入验证阶段');
+    }
+    const stage = { approve: 'approved', execute: 'executing', validate: 'validating' }[action];
+    const at = new Date().toISOString();
+    this.workflow = { ...this.workflow, stage, updatedAt: at,
+      approvedAt: action === 'approve' ? at : this.workflow.approvedAt,
+      executionStartedAt: action === 'execute' ? at : this.workflow.executionStartedAt,
+      validationStartedAt: action === 'validate' ? at : this.workflow.validationStartedAt,
+      history: [...this.workflow.history, workflowEvent(stage, action)] };
+    this.writeManifest();
+    this.emit('state', this.status());
+    return this.status();
+  }
+
+  async recoverLatest(task) {
+    const projectKey = crypto.createHash('sha256').update(this.root.toLowerCase()).digest('hex').slice(0, 16);
+    const projectDir = path.join(this.storageRoot, projectKey);
+    if (!fs.existsSync(projectDir)) return false;
+    const sessions = fs.readdirSync(projectDir, { withFileTypes: true })
+      .filter((item) => item.isDirectory()).map((item) => item.name).sort().reverse();
+    for (const sessionId of sessions) {
+      const recordDir = path.join(projectDir, sessionId);
+      const manifestFile = path.join(recordDir, 'manifest.json');
+      if (!fs.existsSync(manifestFile)) continue;
+      let manifest;
+      try { manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8')); }
+      catch { continue; }
+      if (!manifest?.active || manifest.stoppedAt) continue;
+      if (!samePath(manifest.projectRoot, this.root)) continue;
+      this.sessionId = String(manifest.sessionId || sessionId);
+      this.startedAt = manifest.startedAt || new Date().toISOString();
+      this.stoppedAt = null;
+      this.recordDir = recordDir;
+      this.entries = Array.isArray(manifest.changes) ? manifest.changes : [];
+      this.files = new Map(Object.entries(manifest.files || {}));
+      this.sequence = this.entries.reduce((max, entry) => Math.max(max, Number(entry.sequence) || 0), 0);
+      this.reportFile = manifest.reportFile || null;
+      this.task = hasTaskContent(task) ? sanitizeTask(task) : sanitizeTask(manifest.task);
+      this.workflow = sanitizeWorkflow(manifest.workflow);
+      this.recovered = true;
+      this.active = true;
+      this.phase = 'recovering';
+      this.emit('state', this.status());
+      await this.reconcile();
+      this.phase = 'active';
+      this.writeManifest();
+      this.startWatcher();
+      this.emit('state', this.status());
+      return true;
+    }
+    return false;
   }
 
   startWatcher() {
@@ -253,6 +342,10 @@ export class ProjectChangeRecorder extends EventEmitter {
   addExternalEntry(value) {
     if (!this.active || !value || typeof value !== 'object') return null;
     const entry = sanitizeExternalEntry(value, ++this.sequence);
+    if (entry.source === 'deterministic-verification' && this.workflow.stage === 'blocked') {
+      this.workflow = { ...this.workflow, stage: 'validating', updatedAt: new Date().toISOString(),
+        history: [...this.workflow.history, workflowEvent('validating', '新增验证证据')] };
+    }
     this.appendEntry(entry);
     return entry;
   }
@@ -285,25 +378,36 @@ export class ProjectChangeRecorder extends EventEmitter {
     if (!this.recordDir) throw new Error('工程变更记录器尚未启动');
     if (this.active) await this.reconcile();
     this.reportFile = path.join(this.recordDir, 'change-report.md');
-    const state = this.status();
+    let state = this.status();
+    const deliveryStage = state.assessment.readiness === 'ready' ? 'delivered' : 'blocked';
+    this.workflow = { ...this.workflow, stage: deliveryStage, updatedAt: new Date().toISOString(),
+      deliveredAt: deliveryStage === 'delivered' ? new Date().toISOString() : this.workflow.deliveredAt,
+      history: [...this.workflow.history, workflowEvent(deliveryStage, 'export')] };
+    state = this.status();
     fs.writeFileSync(this.reportFile, buildMarkdownReport(state, this.entries), 'utf8');
-    fs.writeFileSync(path.join(this.recordDir, 'evidence-index.json'), JSON.stringify({
-      schemaVersion: 1, generatedAt: new Date().toISOString(), task: this.task,
-      assessment: state.assessment,
-      artifacts: { report: this.reportFile, manifest: path.join(this.recordDir, 'manifest.json'),
-        eventLog: path.join(this.recordDir, 'changes.jsonl'), snapshots: path.join(this.recordDir, 'snapshots') },
-    }, null, 2), 'utf8');
-    fs.writeFileSync(path.join(this.recordDir, 'traceability.json'), JSON.stringify({
-      schemaVersion: 1, task: this.task,
-      requirements: this.task.requirementIds.map((id) => ({ id,
-        changedFiles: state.assessment.impactedFiles,
-        changedModels: state.assessment.impactedModels,
-        verificationIds: state.assessment.verification.map((item) => item.id) })),
+    const evidenceIndexFile = path.join(this.recordDir, 'evidence-index.json');
+    const traceabilityFile = path.join(this.recordDir, 'traceability.json');
+    const integrityFile = path.join(this.recordDir, 'evidence-integrity.json');
+    fs.writeFileSync(traceabilityFile, JSON.stringify({
+      schemaVersion: 2, task: this.task,
+      requirements: buildTraceability(this.task, this.entries, state.assessment),
     }, null, 2), 'utf8');
     this.writeManifest();
+    const protectedFiles = ['change-report.md', 'manifest.json', 'changes.jsonl', 'traceability.json'];
+    fs.writeFileSync(integrityFile, JSON.stringify({
+      schemaVersion: 1, algorithm: 'sha256', generatedAt: new Date().toISOString(),
+      files: Object.fromEntries(protectedFiles.filter((name) => fs.existsSync(path.join(this.recordDir, name)))
+        .map((name) => [name, hashFile(path.join(this.recordDir, name))])),
+    }, null, 2), 'utf8');
+    fs.writeFileSync(evidenceIndexFile, JSON.stringify({
+      schemaVersion: 2, generatedAt: new Date().toISOString(), task: this.task,
+      assessment: state.assessment,
+      artifacts: { report: this.reportFile, manifest: path.join(this.recordDir, 'manifest.json'),
+        eventLog: path.join(this.recordDir, 'changes.jsonl'), snapshots: path.join(this.recordDir, 'snapshots'),
+        traceability: traceabilityFile, integrity: integrityFile },
+    }, null, 2), 'utf8');
     return { ...this.status(), manifestFile: path.join(this.recordDir, 'manifest.json'),
-      evidenceIndexFile: path.join(this.recordDir, 'evidence-index.json'),
-      traceabilityFile: path.join(this.recordDir, 'traceability.json') };
+      evidenceIndexFile, traceabilityFile, integrityFile };
   }
 
   async flushPending() {
@@ -376,7 +480,7 @@ export class ProjectChangeRecorder extends EventEmitter {
   writeManifest() {
     if (!this.recordDir) return;
     const manifest = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       ...this.status(),
       files: Object.fromEntries(this.files),
       changes: this.entries,
@@ -398,6 +502,21 @@ function makeSessionId() {
   return `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(3).toString('hex')}`;
 }
 
+function samePath(left, right) {
+  const normalize = (value) => {
+    const resolved = path.resolve(String(value || ''));
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  return normalize(left) === normalize(right);
+}
+
+function hasTaskContent(value) {
+  if (!value || typeof value !== 'object') return false;
+  return Boolean(String(value.title || '').trim() || String(value.owner || '').trim()
+    || String(value.description || '').trim() || (Array.isArray(value.requirementIds)
+      ? value.requirementIds.length : String(value.requirementIds || '').trim()));
+}
+
 function safeName(value) {
   return String(value).replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'change';
 }
@@ -405,6 +524,26 @@ function safeName(value) {
 function isInside(root, target) {
   const rel = path.relative(path.resolve(root), path.resolve(target));
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function hashFile(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function verifyIntegrity(recordDir) {
+  const integrityFile = path.join(recordDir, 'evidence-integrity.json');
+  const manifest = JSON.parse(fs.readFileSync(integrityFile, 'utf8'));
+  if (manifest.algorithm !== 'sha256' || !manifest.files || typeof manifest.files !== 'object') {
+    throw new Error('证据完整性清单格式无效');
+  }
+  const results = [];
+  for (const [name, expected] of Object.entries(manifest.files)) {
+    const file = path.resolve(recordDir, name);
+    if (!isInside(recordDir, file)) throw new Error(`证据路径越界: ${name}`);
+    const actual = fs.existsSync(file) ? hashFile(file) : null;
+    results.push({ file: name, expected, actual, ok: actual === expected });
+  }
+  return { ok: results.length > 0 && results.every((item) => item.ok), files: results };
 }
 
 function summarizeText(beforeFile, afterFile) {
@@ -434,6 +573,7 @@ function sanitizeExternalEntry(value, sequence) {
     time: text(value.time || new Date().toISOString(), 80),
     source: text(value.source || 'external', 80), kind: text(value.kind || 'change', 80),
     relativePath: text(value.relativePath, 500), model: text(value.model, 300),
+    models: list(value.models || value.affectedModels, 50).map(String),
     status: text(value.status, 80), summary: text(value.summary, 1000),
     changes: list(value.changes), added: list(value.added), removed: list(value.removed),
     metrics: sanitizeMetrics(value.metrics, text), requirements: list(value.requirements, 100),
@@ -457,6 +597,10 @@ function buildMarkdownReport(state, entries) {
     `- 任务: ${escapeMd(state.task.title)}`,
     `- 需求/工单: ${state.task.requirementIds.map(escapeMd).join('，') || '-'}`,
     `- 责任人: ${escapeMd(state.task.owner) || '-'}`,
+    `- 变更集阶段: \`${state.workflow.stage}\``,
+    `- 计划模型: ${state.task.plannedModels.map(escapeMd).join('，') || '-'}`,
+    `- 计划文件: ${state.task.plannedFiles.map(escapeMd).join('，') || '-'}`,
+    `- 验收准则: ${state.task.acceptanceCriteria.map(escapeMd).join('；') || '-'}`,
     `- 记录会话: \`${state.sessionId}\``, `- 开始时间: ${state.startedAt || '-'}`,
     `- 导出时间: ${new Date().toISOString()}`, `- 变更总数: ${state.changeCount}`,
     `- 验证证据数: ${state.evidenceCount}`,
@@ -517,9 +661,32 @@ function escapeMd(value) { return String(value).replace(/([\\`*_[\]<>])/g, '\\$1
 function sanitizeTask(value = {}) {
   const text = (v, max) => String(v ?? '').replace(/[\r\n]+/g, ' ').trim().slice(0, max);
   const rawIds = Array.isArray(value?.requirementIds) ? value.requirementIds : String(value?.requirementIds || '').split(/[,;，；\s]+/);
+  const list = (v, maxItems = 100) => [...new Set((Array.isArray(v) ? v : String(v || '').split(/[,;，；\r\n]+/))
+    .map((item) => text(item, 500)).filter(Boolean))].slice(0, maxItems);
   return { title: text(value?.title || '未命名变更任务', 200),
     requirementIds: [...new Set(rawIds.map((id) => text(id, 100)).filter(Boolean))].slice(0, 100),
-    owner: text(value?.owner, 100), description: text(value?.description, 1000) };
+    owner: text(value?.owner, 100), description: text(value?.description, 1000),
+    plannedModels: list(value?.plannedModels, 100), plannedFiles: list(value?.plannedFiles, 200),
+    acceptanceCriteria: list(value?.acceptanceCriteria, 100) };
+}
+
+function workflowEvent(stage, reason) {
+  return { stage, reason, time: new Date().toISOString() };
+}
+
+function defaultWorkflow() {
+  return { schemaVersion: 1, stage: 'draft', approvedAt: null, executionStartedAt: null,
+    validationStartedAt: null, deliveredAt: null, updatedAt: new Date().toISOString(), history: [] };
+}
+
+function sanitizeWorkflow(value) {
+  const valid = new Set(['draft', 'approved', 'executing', 'validating', 'blocked', 'delivered']);
+  const base = defaultWorkflow();
+  if (!value || typeof value !== 'object' || !valid.has(value.stage)) return base;
+  return { ...base, stage: value.stage, approvedAt: value.approvedAt || null,
+    executionStartedAt: value.executionStartedAt || null, validationStartedAt: value.validationStartedAt || null,
+    deliveredAt: value.deliveredAt || null, updatedAt: value.updatedAt || base.updatedAt,
+    history: Array.isArray(value.history) ? value.history.slice(-100) : [] };
 }
 
 function sanitizeMetrics(value, text) {
@@ -543,24 +710,56 @@ function buildAssessment(entries, files, task) {
     ...(entry.changes || []).map((item) => item.block), ...(entry.added || []), ...(entry.removed || []),
   ]).filter(Boolean))];
   const verification = checks.map((entry) => ({ id: entry.id, kind: entry.kind,
-    status: entry.status, summary: entry.summary, metrics: entry.metrics, sequence: entry.sequence }));
-  const lastChangeSequence = changes.reduce((max, entry) => Math.max(max, Number(entry.sequence) || 0), 0);
-  const freshVerification = verification.filter((entry) => (Number(entry.sequence) || 0) > lastChangeSequence);
+    status: entry.status, summary: entry.summary, metrics: entry.metrics, sequence: entry.sequence,
+    model: entry.model || '', models: [...new Set([entry.model, ...(entry.models || [])].filter(Boolean))],
+    requirements: entry.requirements || [] }));
   const openRisks = [];
   if (!changes.length) openRisks.push('尚未记录到工程变更');
   if (task.title === '未命名变更任务') openRisks.push('任务名称尚未填写');
+  if (task.plannedModels.length) {
+    const plannedAliases = task.plannedModels.flatMap(modelAliases);
+    for (const model of impactedModels) {
+      if (!modelAliases(model).some((alias) => plannedAliases.includes(alias))) openRisks.push(`${model}: 实际模型变更超出已批准范围`);
+    }
+  }
+  if (task.plannedFiles.length) {
+    const plannedFiles = task.plannedFiles.map((item) => item.replaceAll('\\', '/').toLowerCase());
+    for (const file of impactedFiles) {
+      if (!plannedFiles.includes(String(file).replaceAll('\\', '/').toLowerCase())
+          && !['.slx', '.mdl'].includes(path.extname(file).toLowerCase())) {
+        openRisks.push(`${file}: 实际文件变更超出已批准范围`);
+      }
+    }
+  }
   for (const entry of changes) {
     if (entry.semantic?.status === 'pending') openRisks.push(`${entry.relativePath}: 模型语义分析尚未完成`);
     if (entry.semantic?.status === 'failed') openRisks.push(`${entry.relativePath}: 模型语义分析失败`);
     if (entry.semantic?.truncated) openRisks.push(`${entry.relativePath}: 模型语义分析结果已截断`);
     if (['rollback_failed', 'manual_recovery_required'].includes(entry.status)) openRisks.push(`${entry.model || entry.relativePath}: 变更事务需要人工恢复`);
   }
-  for (const item of freshVerification) if (item.status === 'failed') openRisks.push(`${item.kind}: 验证失败`);
-  const hasPassedTest = freshVerification.some((item) => item.kind === 'testrun_report' && item.status === 'passed');
-  const hasPassedStandards = freshVerification.some((item) => item.kind === 'standards_report' && item.status === 'passed');
-  if (impactedModels.length && verification.length && !freshVerification.length) openRisks.push('验证证据早于最近一次模型变更，必须重新验证');
-  if (impactedModels.length && !hasPassedTest) openRisks.push('模型已变更，但尚无通过的 Test Manager 结果');
-  if (impactedModels.length && !hasPassedStandards) openRisks.push('模型已变更，但尚无通过的建模规范检查结果');
+  const modelVerification = impactedModels.map((model) => {
+    const aliases = modelAliases(model);
+    const relatedChanges = changes.filter((entry) => entryMatchesModel(entry, aliases));
+    const lastChangeSequence = relatedChanges.reduce((max, entry) => Math.max(max, Number(entry.sequence) || 0), 0);
+    const scoped = verification.filter((item) => {
+      const targets = item.models.flatMap(modelAliases);
+      return targets.length ? targets.some((target) => aliases.includes(target)) : impactedModels.length === 1;
+    });
+    const fresh = scoped.filter((item) => (Number(item.sequence) || 0) > lastChangeSequence);
+    const failed = fresh.filter((item) => item.status === 'failed');
+    const hasPassedTest = fresh.some((item) => item.kind === 'testrun_report' && item.status === 'passed');
+    const hasPassedStandards = fresh.some((item) => item.kind === 'standards_report' && item.status === 'passed');
+    if (scoped.length && !fresh.length) openRisks.push(`${model}: 验证证据早于最近一次模型变更（该模型）`);
+    for (const item of failed) openRisks.push(`${model}: ${item.kind} 验证失败`);
+    if (!hasPassedTest) openRisks.push(`${model}: 尚无该模型变更后的 Test Manager 通过结果`);
+    if (!hasPassedStandards) openRisks.push(`${model}: 尚无该模型变更后的建模规范检查通过结果`);
+    return { model, lastChangeSequence, verificationIds: fresh.map((item) => item.id),
+      hasPassedTest, hasPassedStandards, readiness: hasPassedTest && hasPassedStandards && !failed.length ? 'ready' : 'not_ready' };
+  });
+  if (impactedModels.length > 1 && modelVerification.some((item) => item.readiness !== 'ready')
+      && verification.some((item) => !item.models.length)) {
+    openRisks.push('多模型任务存在未绑定模型的验证证据，不能用于交付判定');
+  }
   const riskLevel = openRisks.some((risk) => /失败|人工恢复/.test(risk)) ? 'high' : (openRisks.length ? 'medium' : 'low');
   const readiness = changes.length && riskLevel === 'low' ? 'ready' : 'not_ready';
   const tracked = [...files.keys()].map((item) => item.replaceAll('\\', '/'));
@@ -571,8 +770,41 @@ function buildAssessment(entries, files, task) {
     return { model, files: matched.length ? matched : testFiles.slice(0, 10) };
   });
   return { riskLevel, readiness, openRisks: [...new Set(openRisks)], impactedFiles,
-    impactedModels, changedBlocks, verification, testRecommendations,
+    impactedModels, changedBlocks, verification, modelVerification, testRecommendations,
     requirementIds: task.requirementIds };
+}
+
+function modelAliases(value) {
+  const normalized = String(value || '').replaceAll('\\', '/').replace(/\.(slx|mdl)$/i, '').replace(/^\/+|\/+$/g, '').toLowerCase();
+  if (!normalized) return [];
+  return [...new Set([normalized, normalized.split('/').pop()])];
+}
+
+function entryMatchesModel(entry, aliases) {
+  const values = [entry.model, entry.relativePath, ...(entry.models || [])].flatMap(modelAliases);
+  return values.some((value) => aliases.includes(value));
+}
+
+function buildTraceability(task, entries, assessment) {
+  const changes = entries.filter((entry) => entry.source !== 'deterministic-verification' && entry.status !== 'rolled_back');
+  return task.requirementIds.map((id) => {
+    const explicitChanges = changes.filter((entry) => (entry.requirements || []).includes(id));
+    const scopedChanges = explicitChanges.length ? explicitChanges : changes;
+    const models = [...new Set(scopedChanges.flatMap((entry) => [entry.model,
+      ['.slx', '.mdl'].includes(entry.extension) ? entry.relativePath : '', ...(entry.models || [])]).filter(Boolean))];
+    const aliases = models.flatMap(modelAliases);
+    const verifications = assessment.verification.filter((item) => {
+      if ((item.requirements || []).includes(id)) return true;
+      if (!aliases.length) return false;
+      return item.models.flatMap(modelAliases).some((value) => aliases.includes(value));
+    });
+    const modelVerificationIds = assessment.modelVerification
+      .filter((item) => modelAliases(item.model).some((value) => aliases.includes(value)))
+      .flatMap((item) => item.verificationIds);
+    return { id, scope: explicitChanges.length ? 'explicit' : 'task',
+      changedFiles: [...new Set(scopedChanges.map((entry) => entry.relativePath).filter(Boolean))],
+      changedModels: models, verificationIds: [...new Set([...verifications.map((item) => item.id), ...modelVerificationIds])] };
+  });
 }
 
 function sanitizeSemantic(value) {

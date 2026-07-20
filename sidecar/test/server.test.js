@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Server } from '../src/server.js';
 import { EchoAdapter } from '../src/adapters/echo.js';
 import { BackendAdapter } from '../src/adapters/types.js';
@@ -244,6 +247,75 @@ test('自动模式:改模型自动放行,但运行代码仍需确认', async () 
   ui.close();
   ctrl.close();
   await server.stop();
+});
+
+test('自动模式事务检查点失败或超时均拒绝模型编辑', async () => {
+  const server = new Server({ makeAdapter: () => new BackendAdapter(), config: { mode: 'auto' },
+    host: '127.0.0.1', clientPort: 0, controlPort: 0, transactionPrepareTimeoutMs: 25 });
+  const { clientPort, controlPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+  const ctrl = connectClient(controlPort);
+
+  ctrl.send({ type: 'permission_request', id: 'tx-denied', tool: 'mcp__matlab__model_edit', input: { model: 'demo' } });
+  await ui.waitFor((m) => m.type === OutMsg.TRANSACTION_PREPARE && m.id === 'tx-denied');
+  ui.send({ type: InMsg.TRANSACTION_READY, id: 'tx-denied', ready: false });
+  const denied = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'tx-denied');
+  assert.equal(denied.approved, false);
+  assert.match(denied.message, /checkpoint failed/i);
+
+  ctrl.send({ type: 'permission_request', id: 'tx-timeout', tool: 'mcp__matlab__model_edit', input: { model: 'demo' } });
+  await ui.waitFor((m) => m.type === OutMsg.TRANSACTION_PREPARE && m.id === 'tx-timeout');
+  const timedOut = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'tx-timeout');
+  assert.equal(timedOut.approved, false);
+  assert.match(timedOut.message, /timed out/i);
+  assert.equal(server.pendingPreparations.size, 0);
+
+  ctrl.close(); ui.close(); await server.stop();
+});
+
+test('事务准备期间控制连接断开会立即清理悬挂检查点', async () => {
+  const server = new Server({ makeAdapter: () => new BackendAdapter(), config: { mode: 'auto' },
+    host: '127.0.0.1', clientPort: 0, controlPort: 0 });
+  const { clientPort, controlPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+  const ctrl = connectClient(controlPort);
+  ctrl.send({ type: 'permission_request', id: 'tx-disconnect', tool: 'mcp__matlab__model_edit', input: { model: 'demo' } });
+  await ui.waitFor((m) => m.type === OutMsg.TRANSACTION_PREPARE && m.id === 'tx-disconnect');
+  assert.equal(server.pendingPreparations.size, 1);
+  ctrl.close();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(server.pendingPreparations.size, 0);
+  ui.close(); await server.stop();
+});
+
+test('启用变更记录器时自动编辑必须先批准范围并进入执行阶段', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mc-workflow-'));
+  const server = new Server({ makeAdapter: () => new BackendAdapter(), config: { mode: 'auto' }, cwd: root,
+    host: '127.0.0.1', clientPort: 0, controlPort: 0 });
+  const { clientPort, controlPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+  const ctrl = connectClient(controlPort);
+  await server.changeRecorder.start(root, { title: '受控变更', plannedModels: ['demo'] });
+
+  ctrl.send({ type: 'permission_request', id: 'wf-draft', tool: 'mcp__matlab__model_edit', input: { model: 'demo' } });
+  const draft = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'wf-draft');
+  assert.equal(draft.approved, false);
+  assert.match(draft.message, /draft/);
+  assert.equal(ui.all.some((m) => m.type === OutMsg.TRANSACTION_PREPARE && m.id === 'wf-draft'), false);
+
+  server.changeRecorder.transitionWorkflow('approve');
+  server.changeRecorder.transitionWorkflow('execute');
+  ctrl.send({ type: 'permission_request', id: 'wf-execute', tool: 'mcp__matlab__model_edit', input: { model: 'demo' } });
+  await ui.waitFor((m) => m.type === OutMsg.TRANSACTION_PREPARE && m.id === 'wf-execute');
+  ui.send({ type: InMsg.TRANSACTION_READY, id: 'wf-execute', ready: true });
+  const execute = await ctrl.waitFor((m) => m.type === 'permission_decision' && m.id === 'wf-execute');
+  assert.equal(execute.approved, true);
+
+  ctrl.close(); ui.close(); await server.stop();
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('计划模式:破坏性工具强制拒绝,不弹 UI 确认', async () => {

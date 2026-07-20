@@ -24,6 +24,17 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.13.0 可信变更集与记录器 2.0（功能开发完成）
+
+- 工程切换时保存旧工程会话并重建后端上下文，按规范化工程根恢复独立历史；关闭会话 tombstone 固定上限 256。
+- 记录器按受影响模型分别计算验证新鲜度，要求每个模型在自身最后变更后取得 Test Manager 与规范检查通过结果。
+- 异常退出后的活动记录会话可恢复，并对账 sidecar 停机期间发生的工程文件变化。
+- 变更任务新增计划模型、计划文件和验收准则，按 `draft / approved / executing / validating / delivered / blocked` 确定性推进。
+- 记录器启用时，Auto 模型编辑必须先批准范围、进入执行阶段并完成 MATLAB 检查点握手。
+- 证据包升级 schema v2，新增关键文件 SHA-256 完整性清单、重新载入和篡改检测。
+- 新增 `setupMATLABCopilot` 安装路径状态、修复和卸载入口；CI 增加 MATLAB R2023b/R2025b + Simulink 矩阵。
+- 验证基线：sidecar **86 tests / 14 files**；Playwright **32 tests**；MATLAB R2025b **9 tests**，并配置 R2023b/R2025b CI。
+
 ### v0.11.0 可信工程代理（功能开发完成）
 
 - 新增 `ChangeTransaction`，将每次 `model_edit` 与模型检查点、基线状态、更新编译、新增规范错误检查和 JSON 运行清单绑定。
@@ -36,7 +47,7 @@
 - UI 新增独立录制状态入口，支持开始、停止、查看最近记录和导出 Markdown/JSON/JSONL 证据包。
 - 记录会话升级为工程任务，支持任务名称、需求/工单 ID、责任人和说明；确定性规范、测试、覆盖率、需求矩阵和影响扫描自动进入验证证据。
 - 导出时生成变更报告、事件日志、清单、证据索引和追溯矩阵，确定性计算影响范围、未闭环风险、交付状态与定向测试建议；模型任务缺少通过的规范检查或 Test Manager 结果时保持 `not_ready`。
-- 验证基线：MATLAB R2025b 真实事务/快照/辅助逻辑测试 **8/8**；Playwright **22 tests**（desktop + narrow）；sidecar **72 tests / 12 files**。
+- 当时验证基线：MATLAB R2025b 真实事务/快照/辅助逻辑测试 **8/8**；Playwright **22 tests**；sidecar **72 tests / 12 files**。当前基线见 v0.13.0。
 
 ### v0.10.3 R2023b / 高缩放底栏适配
 
@@ -110,7 +121,7 @@
 - **P2 就地解释选中模块**(对标官方「解释模块」):`🧩 解释模块` 面板按钮 → 针对选中 block 用 `model_read` 读真实参数逐个精准解释(`explainSelected`)。Simulink 右键菜单代码也注册了,但 **R2025b 起上下文菜单 API 变扩展点格式、旧 `addCustomMenuFcn` 不渲染**,故按钮是可靠入口。
 - **界面主题**:Light / Dark / 随 MATLAB(`Panel.detectTheme`:读 `settings().matlab.appearance.MATLABTheme`,System 时查 Windows 注册表;UI `request_theme`/`theme` 事件 + `html[data-theme=light]` 覆盖 + 浅底文字修正);localStorage 持久化,获焦/发送时重同步。
 - **悬停说明**:快捷按钮悬停满 2 秒弹详细用途气泡(`data-tip` + 2s 定时)。
-- **权限模式三态真正生效**:`ask` 逐条确认 / `auto` 改模型放行·跑代码仍确认(`isExecuteTool`) / `plan` 强制只读拒绝。修了「auto 仍逐条批准」(acceptEdits 不覆盖 MCP 工具)与「plan 不强制只读」两个漏洞。
+- **权限模式三态真正生效**:`ask` 逐条确认 / `auto` 仅白名单编辑候选放行、模型编辑仍需事务检查点与变更集阶段门禁 / `plan` 强制只读拒绝。未知工具和执行类始终不自动放行。
 - **稳定性修复**:去掉 3s 上下文刷新 `timer` + 单例 persistent 注册表(它们持有对象致 `clear classes` 失败、点 X 关不掉)→ 改发消息时刷新 + 按窗口 `UserData` 查找面板 + `onClose` 无条件删窗口。
 - **作者寄语**:header 同行加 `Code is cheap, Show me your Harness! · © 林南橘`(紫蓝渐变,自适应省略)。
 

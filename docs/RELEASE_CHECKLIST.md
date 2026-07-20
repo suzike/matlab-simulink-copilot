@@ -14,7 +14,7 @@ npm run release:verify
 `release:verify` 依次执行：
 
 1. Sidecar Node 单元测试。
-2. 22 项 Playwright 桌面与窄屏布局测试，检查三态快捷栏、滚轮横移、悬停边界、空模型下拉、变更记录器任务证据、横向溢出和按钮文字越界。
+2. 32 项 Playwright 桌面与窄屏布局测试，检查工程切换隔离、有界会话墓碑、三态快捷栏、滚轮横移、悬停边界、空模型下拉、分阶段变更记录器、横向溢出和按钮文字越界。
 3. 版本一致性、运行时零依赖、Git 清单、UTF-8、UI 脚本语法、打包排除规则和 `.mltbx` 内容检查。
 
 `.mltbx` 只保留运行时源码、MATLAB 验收入口和用户文档；CI、Playwright 用例、Node 单测、发布脚本、`node_modules` 与临时证据目录不得进入安装包。

@@ -6,11 +6,11 @@
 
 停靠式 `uihtml` 面板，自动感知 MATLAB 工程和活动模型，通过本地 sidecar 驱动 Claude Code / Codex，并复用 MATLAB MCP 操作当前 MATLAB 会话。
 
-[![Version](https://img.shields.io/badge/version-0.11.2-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.2)
+[![Version](https://img.shields.io/badge/version-0.13.0-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.13.0)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/backends-Claude%20Code%20%7C%20Codex-2563eb)
-![Tests](https://img.shields.io/badge/sidecar-79%20tests-16a34a)
+![Tests](https://img.shields.io/badge/sidecar-86%20tests-16a34a)
 ![Runtime dependencies](https://img.shields.io/badge/sidecar-0%20npm%20dependencies-0f766e)
 
 [安装指南](INSTALL.md) · [变更日志](CHANGELOG.md) · [开发计划](plan.md) · [最新 Release](https://github.com/suzike/matlab-simulink-copilot/releases/latest)
@@ -22,7 +22,7 @@
 下面两张图由仓库当前 `ui/index.html` 在全屏浏览器预览中生成，展示与 MATLAB `uihtml` 面板相同的前端代码、布局和交互状态。
 
 <div align="center">
-  <img src="docs/images/v0.11.0-ui-overview.jpg" width="900" alt="MATLAB Copilot v0.11.0 全屏界面与可信变更事务">
+  <img src="docs/images/v0.13.0-ui-overview.jpg" width="900" alt="MATLAB Copilot v0.13.0 全屏界面与可信变更事务">
   <br>
   <sub>全屏浏览器预览：活动工程上下文、Echo 全链路冒烟、当前工具栏与 MBD 快捷动作。</sub>
 </div>
@@ -30,12 +30,23 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/v0.11.0-change-recorder.jpg" width="900" alt="MATLAB Copilot v0.11.0 工程模型变更记录器">
+  <img src="docs/images/v0.13.0-change-recorder.jpg" width="900" alt="MATLAB Copilot v0.13.0 分阶段工程模型变更记录器">
   <br>
-  <sub>全屏浏览器预览：规范检查、覆盖率和本地权限确认卡。报告数值为固定协议演示数据，仅用于验证当前 UI 事件链。</sub>
+  <sub>全屏浏览器预览：变更范围、批准/执行/验证阶段、模型级交付判断与证据包状态。</sub>
 </div>
 
-## v0.11.2 重点
+## v0.13.0 重点
+
+- **工程切换强隔离**：MATLAB 工程根变化时先保存旧工程会话、关闭旧后端上下文，再恢复新工程历史；A/B 工程往返不再串写。
+- **有界会话生命周期**：关闭标签和 Fork 的迟到事件墓碑固定为 256 项，长期使用不会无限增长。
+- **模型级验证门禁**：每个受影响模型分别关联最后变更后的 Test Manager 与规范检查证据；多模型任务不接受未绑定模型的验证结果。
+- **记录会话恢复**：sidecar 异常退出后重新启动记录器，会恢复未停止的原会话并对账停机期间文件变化。
+- **可信变更集状态机**：任务按 `draft → approved → executing → validating → delivered/blocked` 推进；记录器启用时，Auto 模型编辑只有进入执行阶段才会放行。
+- **证据完整性**：证据包升级到 schema v2，新增 `evidence-integrity.json`，可重新载入并以 SHA-256 检测报告、清单、事件日志和追溯矩阵篡改。
+- **可维护安装修复**：`setupMATLABCopilot` 提供 `status/install/repair/uninstall`，自动修复持久路径且只管理自己的 `startup.m` 标记块。
+- **跨版本 CI**：GitHub Actions 增加 MATLAB R2023b / R2025b + Simulink 双版本兼容性门禁。
+
+v0.11.2 完成的权限和事务安全能力继续保留：
 
 - **Codex 权限闭环**：Codex 的 MATLAB MCP 调用先经过本地权限代理；拒绝或控制端口断开时，请求不会到达真实 MATLAB MCP。
 - **Auto 默认拒绝未知工具**：自动模式仅放行显式列入白名单的 `model_edit`，未知 MCP 工具必须确认。
@@ -61,7 +72,7 @@ v0.10.3 完成的 MATLAB R2023b / 高缩放界面优化继续保留：
 - **无可见滚动条**：单行模式保留横向滚动能力但隐藏滚动条，避免额外占用垂直空间。
 - **输入区稳定**：三态只改变快捷功能行，配置工具栏、附件和对话输入框不参与缩放或折叠。
 - **工具栏修复**：修复快捷按钮悬停上边缘裁切，以及模型列表为空时出现孤立下拉箭头。
-- **R2023b 等效回归**：新增 760×600 受限视口覆盖；当前共 22 项 Playwright 用例在桌面和窄屏项目全部通过。
+- **R2023b 等效回归**：760×600 受限视口继续覆盖；当前共 32 项 Playwright 用例在桌面和窄屏项目全部通过。
 
 v0.10.2 完成的会话资源隔离继续保留：
 
@@ -69,15 +80,15 @@ v0.10.2 完成的会话资源隔离继续保留：
 - **每会话附件队列**：待发送文件、粘贴图片、单项移除、清空、消费和临时文件清理均按 `convId` 执行。
 - **Fork 输入隔离**：分支粘贴与附件列表固定绑定对应 Fork，不再误用主标签的活动会话。
 - **关闭资源回收**：关闭标签或 Fork 时只清理目标会话的配置、上下文和临时附件，不影响其他会话。
-- **隔离与布局回归测试**：Playwright 在桌面与窄屏验证标签切换、后台事件、Fork 附件、快捷功能三态、滚轮横移、悬停边界、空模型下拉和变更记录器任务证据，共 22 项用例。
+- **隔离与布局回归测试**：Playwright 在桌面与窄屏验证标签切换、后台事件、Fork 附件、工程切换、墓碑上限、快捷功能三态和变更记录器任务证据，共 32 项用例。
 
 ### 工程模型变更记录器
 
 下一阶段从“功能集合”升级为可信工程代理。当前已完成模型变更事务与工程级持续记录器：每次 `model_edit` 建立检查点和基线，执行后强制更新编译并检查新增规范错误；工程记录器则为当前 MATLAB 工程建立文件基线，持续保存模型、数据字典、需求和代码文件的保存前后快照，并将 AI 事务写入同一时间线。安全条件满足时验证失败会自动恢复修改前模型，完整证据分别写入 `~/.matlab-copilot/runs/` 与 `~/.matlab-copilot/change-records/`。
 
-工具栏红色圆点用于控制工程记录器。启动、停止和导出均由用户显式触发；导出同时生成 `change-report.md`、`manifest.json` 和追加式 `changes.jsonl`。记录内容包括来源、时间、文件、增删改类型、SHA-256、前后快照和文本行变化摘要。保存的 `.slx/.mdl` 修改会由 MATLAB 隔离加载前后快照，补充块参数变化、新增/删除块与模型规模；AI 模型编辑则记录验证/回退状态和事务证据路径。
+工具栏红色圆点用于控制工程记录器。启动、批准范围、进入执行、开始验证、停止和导出均由用户显式触发；导出生成 `change-report.md`、`manifest.json`、追加式 `changes.jsonl`、`evidence-index.json`、`traceability.json` 和 `evidence-integrity.json`。记录内容包括来源、时间、文件、增删改类型、SHA-256、前后快照和文本行变化摘要。保存的 `.slx/.mdl` 修改会由 MATLAB 隔离加载前后快照，补充块参数变化、新增/删除块与模型规模；AI 模型编辑则记录验证/回退状态和事务证据路径。
 
-每个记录会话同时是一个工程变更任务，可填写任务名称、需求/工单 ID、责任人和变更说明。规范检查、Test Manager、覆盖率、需求矩阵和影响扫描结果自动进入验证矩阵；系统据此计算影响文件/模型/块、未闭环风险和 `ready/not_ready` 交付状态，并按受影响模型关联项目中的 `.mldatx` 或测试脚本。最终证据包额外包含 `evidence-index.json` 和 `traceability.json`。
+每个记录会话同时是一个工程变更任务，可填写任务名称、需求/工单 ID、责任人、计划模型、计划文件、验收准则和变更说明。规范检查、Test Manager、覆盖率、需求矩阵和影响扫描结果进入验证矩阵；系统按每个受影响模型分别计算证据新鲜度和 `ready/not_ready`，不允许一个模型的结果替另一个模型闭环。
 
 v0.10.1 完成的质量门禁继续保留：
 
@@ -103,7 +114,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 系统架构
 
 <div align="center">
-  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.11.2 静态系统架构图">
+  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.13.0 静态系统架构图">
 </div>
 
 | 层 | 当前职责 | 关键实现 |
@@ -124,7 +135,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ### 一轮消息的数据流
 
 <div align="center">
-  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.11.2 消息数据流图">
+  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.13.0 消息数据流图">
 </div>
 
 - MATLAB 与 sidecar 使用 localhost TCP + 行分隔 JSON；线上字符串统一转为 ASCII `\uXXXX`，规避 `tcpclient` UTF-8 解码问题。
@@ -136,7 +147,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 功能全景
 
 <div align="center">
-  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.11.2 功能全景图">
+  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.13.0 功能全景图">
 </div>
 
 ### AI 与模型交互
@@ -188,7 +199,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 权限与安全
 
 <div align="center">
-  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.11.2 权限与安全逻辑图">
+  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.13.0 权限与安全逻辑图">
 </div>
 
 | 模式 | 只读操作 | 修改模型/写文件 | 执行 MATLAB / shell / 测试 | MATLAB 本地确定性副作用 |
@@ -215,7 +226,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 
 | 组件 | 要求 |
 |---|---|
-| MATLAB | R2023b+，需要 Simulink；当前 Release 在 R2025b 完成实机验证 |
+| MATLAB | R2023b+，需要 Simulink；CI 覆盖 R2023b/R2025b，当前 Release 在 R2025b 完成实机验证 |
 | Node.js | 20 或更高；sidecar 无运行时 npm 依赖 |
 | AI 后端 | Claude Code 或 Codex CLI，至少安装并登录一个 |
 | MATLAB MCP | Simulink Agentic Toolkit 与 `matlab-mcp-server`；需要调用模型工具时执行 `satk_initialize` |
@@ -226,6 +237,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 
 ```matlab
 matlab.addons.install('MATLAB-Copilot.mltbx')
+setupMATLABCopilot("repair")
 satk_initialize
 copilot_doctor()
 copilot
@@ -247,6 +259,7 @@ copilot
 matlab/
   copilot.m                       启动、共享 MATLAB 会话
   copilot_doctor.m                环境与 MCP 自检
+  setupMATLABCopilot.m            安装路径状态、修复与卸载
   build_toolbox.m                 生成 MATLAB-Copilot.mltbx
   +matlabcopilot/
     Panel.m                       内嵌界面、事件路由、多会话、本地权限
@@ -262,8 +275,8 @@ sidecar/
   src/permissionServer.js         零依赖 MCP JSON-RPC 权限服务
   src/projectChangeRecorder.js    工程文件基线、快照、时间线与报告
   src/adapters/                   Claude Code / Codex / Echo
-  test/                           72 个测试，12 个测试文件
-docs/images/                      真实 MATLAB 截图与静态 SVG 图
+  test/                           86 个测试，14 个测试文件
+docs/images/                      当前产品截图与静态 SVG 图
 ```
 
 架构细节、协议字段、后端命令、历史故障与扩展规则见 [AGENTS.md](AGENTS.md)。
@@ -310,7 +323,7 @@ release_acceptance('MATLAB-Copilot.mltbx', ...
 
 详细发布步骤和受保护的 Add-On 安装验收见 [Release 验收清单](docs/RELEASE_CHECKLIST.md)。
 
-当前主分支发布门槛包括：72 个 sidecar 测试、22 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB `checkcode` / 类加载与 8 项真实 Simulink 事务/快照/辅助逻辑测试、真实 Panel 截图、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
+当前主分支发布门槛包括：86 个 sidecar 测试、32 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB R2023b/R2025b CI、R2025b `checkcode` / 类加载与 9 项真实事务/快照/安装辅助逻辑测试、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
 
 ## 已知边界
 

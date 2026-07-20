@@ -38,6 +38,7 @@ function report = release_acceptance(toolboxFile, opts)
             "ui/index.html"
             "matlab/copilot.m"
             "matlab/copilot_doctor.m"
+            "matlab/setupMATLABCopilot.m"
             "matlab/resources/icons/copilot_16.png"
             "matlab/resources/icons/copilot_24.png"
             "sidecar/src/index.js"
@@ -181,10 +182,10 @@ function detail = runEcho(packageRoot)
     while toc(deadline) < 15
         drawnow;
         pause(0.05);
-        types = cellfun(@(x) string(x.type), events);
+        types = string(cellfun(@(x) char(string(x.type)), events, 'UniformOutput', false));
         if any(types == "result"); break; end
     end
-    types = cellfun(@(x) string(x.type), events);
+    types = string(cellfun(@(x) char(string(x.type)), events, 'UniformOutput', false));
     required = ["ready", "assistant_start", "assistant_delta", "assistant_stop", "result"];
     missing = required(~arrayfun(@(x) any(types == x), required));
     if ~isempty(missing); error('matlabcopilot:releaseEcho', 'Echo 缺少事件: %s', strjoin(missing, ', ')); end
@@ -241,11 +242,10 @@ function gate = installPackage(toolboxFile, expectedVersion, allowReplace)
         if strlength(entry) == 0 || ~contains(lower(entry), lower("MATLAB Add-Ons"))
             error('安装后 copilot 入口未解析到 Add-On 目录: %s', entry);
         end
-        addpath(fileparts(entry));
-        if savepath ~= 0
-            error('无法把工具箱入口持久写入用户 MATLAB path');
-        end
-        gate = passGate("MAT-009", "Add-On 注册安装", "已安装 " + installedVersion + "，入口=" + entry);
+        setup = setupMATLABCopilot("repair", Root=fileparts(entry), Persistence="auto");
+        if ~setup.ok; error('安装后路径修复未生效'); end
+        gate = passGate("MAT-009", "Add-On 注册安装", "已安装 " + installedVersion + ...
+            "，入口=" + entry + "，持久化=" + string(setup.startupManaged));
     catch err
         gate = failGate("MAT-009", "Add-On 注册安装", string(err.message));
     end

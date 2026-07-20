@@ -21,13 +21,16 @@ function normalizeConvId(value) {
  * 单 UI 客户端(侧边栏面板)即可满足 v1。
  */
 export class Server {
-  constructor({ makeAdapter, config, cwd, host, clientPort, controlPort }) {
+  constructor({ makeAdapter, config, cwd, host, clientPort, controlPort,
+    transactionPrepareTimeoutMs = 15000, permissionTimeoutMs = 180000 }) {
     this.makeAdapter = makeAdapter;
     this.config = config || {};      // 默认/全局配置 {backend,model,effort,mode}
     this.cwd = cwd || process.cwd();
     this.host = host;
     this.clientPort = clientPort;
     this.controlPort = controlPort;
+    this.transactionPrepareTimeoutMs = transactionPrepareTimeoutMs;
+    this.permissionTimeoutMs = permissionTimeoutMs;
     this.convs = new Map();          // convId -> 会话状态 {convId,config,adapter,compacting,compactBuf,seed}
     this.client = null;              // 当前 UI socket
     this.pendingPermissions = new Map(); // reqId -> { sock, convId }
@@ -322,6 +325,12 @@ export class Server {
         case 'start': state = await this.changeRecorder.start(projectRoot, task); break;
         case 'stop': state = await this.changeRecorder.stop(); break;
         case 'configure': state = this.changeRecorder.configureTask(task); break;
+        case 'approve':
+          if (task && Object.keys(task).length) this.changeRecorder.configureTask(task);
+          state = this.changeRecorder.transitionWorkflow('approve');
+          break;
+        case 'execute': state = this.changeRecorder.transitionWorkflow('execute'); break;
+        case 'validate': state = this.changeRecorder.transitionWorkflow('validate'); break;
         case 'export': {
           const report = await this.changeRecorder.exportReport();
           this.toClient({ type: OutMsg.CHANGE_REPORT, report });
@@ -387,6 +396,12 @@ export class Server {
           this.pendingPermissions.delete(key);
         }
       }
+      for (const [key, p] of this.pendingPreparations) {
+        if (p.sock === sock) {
+          if (p.timer) clearTimeout(p.timer);
+          this.pendingPreparations.delete(key);
+        }
+      }
     });
   }
 
@@ -406,6 +421,11 @@ export class Server {
     }
     // 「自动」编辑模式:改模型/写文件自动放行;"运行代码/跑测试/执行 shell"仍需确认。
     if (mode === 'auto' && isAutoEditableTool(tool)) {
+      if (this.changeRecorder.active && this.changeRecorder.workflow.stage !== 'executing') {
+        this.controlReply(sock, id, false,
+          `变更记录器当前处于 ${this.changeRecorder.workflow.stage} 阶段，请先确认范围并进入执行阶段。`);
+        return;
+      }
       if (!this.client || this.client.destroyed) {
         this.controlReply(sock, id, false, 'Panel is unavailable; transaction checkpoint was not created.');
         return;
@@ -415,7 +435,7 @@ export class Server {
         if (!this.pendingPreparations.has(key)) return;
         this.pendingPreparations.delete(key);
         this.controlReply(sock, id, false, 'Transaction checkpoint timed out.');
-      }, 15000);
+      }, this.transactionPrepareTimeoutMs);
       if (timer.unref) timer.unref();
       this.pendingPreparations.set(key, { sock, id, convId, timer });
       this.toClient({ type: OutMsg.TRANSACTION_PREPARE, convId, id, tool, input });
@@ -445,7 +465,7 @@ export class Server {
         this.pendingPermissions.delete(key);
         this.controlReply(sock, id, false, '确认超时，已自动拒绝');
       }
-    }, 180000);
+    }, this.permissionTimeoutMs);
     if (timer.unref) timer.unref();   // 不阻止进程退出
     this.pendingPermissions.set(key, { sock, id, convId, timer });
     const diff = buildDiff(tool, input);

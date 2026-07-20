@@ -267,3 +267,111 @@ test('文件监视失败时状态明确降级并启用周期对账', async () =>
     f.cleanup();
   }
 });
+
+test('多模型任务按模型分别绑定变更后的验证证据', async () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.root, 'model_a.slx'), Buffer.from('a1'));
+    fs.writeFileSync(path.join(f.root, 'model_b.slx'), Buffer.from('b1'));
+    await f.recorder.start(f.root, { title: '双模型修改' });
+    fs.writeFileSync(path.join(f.root, 'model_a.slx'), Buffer.from('a2'));
+    fs.writeFileSync(path.join(f.root, 'model_b.slx'), Buffer.from('b2'));
+    for (const name of ['model_a.slx', 'model_b.slx']) {
+      const change = await f.recorder.capture(name);
+      f.recorder.enrichEntry(change.id, change.sequence, { status: 'analyzed', changes: [], added: [], removed: [] });
+    }
+    f.recorder.addExternalEntry({ id: 'unscoped-test', source: 'deterministic-verification', kind: 'testrun_report', status: 'passed' });
+    f.recorder.addExternalEntry({ id: 'unscoped-check', source: 'deterministic-verification', kind: 'standards_report', status: 'passed' });
+    assert.equal(f.recorder.status().assessment.readiness, 'not_ready');
+    assert.match(f.recorder.status().assessment.openRisks.join('\n'), /未绑定模型/);
+
+    for (const model of ['model_a', 'model_b']) {
+      f.recorder.addExternalEntry({ id: `${model}-test`, source: 'deterministic-verification', kind: 'testrun_report', model, status: 'passed' });
+      f.recorder.addExternalEntry({ id: `${model}-check`, source: 'deterministic-verification', kind: 'standards_report', model, status: 'passed' });
+    }
+    const assessment = f.recorder.status().assessment;
+    assert.equal(assessment.readiness, 'ready');
+    assert.equal(assessment.modelVerification.length, 2);
+    assert.ok(assessment.modelVerification.every((item) => item.readiness === 'ready'));
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});
+
+test('异常退出后恢复同一记录会话并对账停机期间变更', async () => {
+  const f = fixture();
+  let recovered;
+  try {
+    await f.recorder.start(f.root, { title: '可恢复任务', requirementIds: ['REQ-REC'] });
+    const sessionId = f.recorder.sessionId;
+    f.recorder.watcher?.close();
+    f.recorder.watcher = null;
+    f.recorder.watcherHealthy = false;
+    f.recorder.active = false; // 模拟进程直接退出，不写停止清单。
+    fs.writeFileSync(path.join(f.root, 'controller.m'), 'gain = 7;\n', 'utf8');
+
+    recovered = new ProjectChangeRecorder({ root: f.root, storageRoot: path.join(f.base, 'records'), debounceMs: 20 });
+    const state = await recovered.start();
+    assert.equal(state.recovered, true);
+    assert.equal(state.sessionId, sessionId);
+    assert.equal(state.task.title, '可恢复任务');
+    assert.equal(state.changeCount, 1);
+    assert.equal(recovered.entries[0].relativePath, 'controller.m');
+    assert.equal(fs.existsSync(recovered.entries[0].beforeSnapshot), true);
+  } finally {
+    if (recovered) await recovered.stop();
+    f.cleanup();
+  }
+});
+
+test('证据包可重新载入并检测关键文件篡改', async () => {
+  const f = fixture();
+  try {
+    await f.recorder.start(f.root, { title: '完整性验证' });
+    fs.writeFileSync(path.join(f.root, 'controller.m'), 'gain = 3;\n', 'utf8');
+    await f.recorder.capture('controller.m');
+    const report = await f.recorder.exportReport();
+    assert.equal(fs.existsSync(report.integrityFile), true);
+    const loaded = ProjectChangeRecorder.inspectEvidencePackage(f.recorder.recordDir);
+    assert.equal(loaded.manifest.schemaVersion, 2);
+    assert.equal(loaded.evidenceIndex.schemaVersion, 2);
+    assert.equal(loaded.integrity.ok, true);
+
+    fs.appendFileSync(report.reportFile, '\nunauthorized change\n', 'utf8');
+    const tampered = ProjectChangeRecorder.inspectEvidencePackage(f.recorder.recordDir);
+    assert.equal(tampered.integrity.ok, false);
+    assert.equal(tampered.integrity.files.find((item) => item.file === 'change-report.md').ok, false);
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});
+
+test('可信变更集按范围批准、执行、验证和交付顺序推进', async () => {
+  const f = fixture();
+  try {
+    await f.recorder.start(f.root, { title: '控制器变更', plannedModels: ['controller'],
+      acceptanceCriteria: ['Test Manager 通过', '规范检查通过'] });
+    assert.equal(f.recorder.status().workflow.stage, 'draft');
+    f.recorder.transitionWorkflow('approve');
+    f.recorder.transitionWorkflow('execute');
+    f.recorder.addExternalEntry({ id: 'change', source: 'ai-model-edit', kind: 'model_edit',
+      model: 'controller', status: 'verified', summary: '调整增益' });
+    f.recorder.transitionWorkflow('validate');
+    f.recorder.addExternalEntry({ id: 'test', source: 'deterministic-verification',
+      kind: 'testrun_report', model: 'controller', status: 'passed' });
+    f.recorder.addExternalEntry({ id: 'standards', source: 'deterministic-verification',
+      kind: 'standards_report', model: 'controller', status: 'passed' });
+    const report = await f.recorder.exportReport();
+    assert.equal(report.workflow.stage, 'delivered');
+    assert.equal(report.assessment.readiness, 'ready');
+    assert.match(fs.readFileSync(report.reportFile, 'utf8'), /变更集阶段: `delivered`/);
+
+    f.recorder.configureTask({ title: '控制器变更', plannedModels: ['controller', 'plant'] });
+    assert.equal(f.recorder.status().workflow.stage, 'draft');
+  } finally {
+    await f.recorder.stop();
+    f.cleanup();
+  }
+});

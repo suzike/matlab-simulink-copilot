@@ -446,7 +446,8 @@
 
   /* ── 变更记录(操作审计)弹窗 ── */
   #audit-pop { width: 340px; max-height: 320px; overflow-y: auto; }
-  #recorder-pop { width: min(380px, calc(100vw - 24px)); max-height: min(390px, calc(100vh - 80px)); overflow-y: auto; }
+  #recorder-pop { width: min(380px, calc(100vw - 24px));
+                  max-height: min(560px, calc(100vh - var(--footer-h, 64px) - 70px)); overflow-y: auto; }
   #tb-recorder.recording { color: #ef4444; border-color: #ef4444; background: rgba(239,68,68,.1); }
   .rec-head { display:flex; align-items:center; gap:8px; padding:4px 7px 9px; border-bottom:1px solid var(--border); }
   .rec-dot { width:8px; height:8px; border-radius:50%; background:var(--faint); flex:0 0 auto; }
@@ -570,11 +571,11 @@
     .tb-group .seg, .tb-group .sel { flex: 0 0 auto; }
   }
 
-  .popup { position: absolute; bottom: 64px; right: 12px; width: 290px; background: var(--surface2);
+  .popup { position: absolute; bottom: calc(var(--footer-h, 64px) + 16px); right: 12px; width: 290px; background: var(--surface2);
            border: 1px solid var(--border2); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,.45);
            padding: 7px; z-index: 30; animation: rowIn .16s ease both; }
   .popup.hidden { display: none; }
-  .popup.slash { left: 12px; right: auto; width: 320px; max-height: 280px; overflow-y: auto; bottom: 64px; }
+  .popup.slash { left: 12px; right: auto; width: 320px; max-height: 280px; overflow-y: auto; }
   .pop-title { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--faint);
                padding: 4px 8px 7px; text-transform: uppercase; letter-spacing: .5px; }
   .pop-hint { font-size: 10px; background: var(--surface3); border-radius: 5px; padding: 1px 6px; }
@@ -826,6 +827,13 @@ setQuickMode(QUICK_MODES.has(storedQuickMode) ? storedQuickMode : (legacyCollaps
 // 渲染代码无需改动,只在处理每条事件/动作前把指针指对即可。
 const tabs = {};            // convId -> tab
 const closedConvs = new Set(); // 已关闭会话的 tombstone：丢弃 adapter 迟到事件，防幽灵标签重建
+const CLOSED_CONV_CAP = 256;
+function rememberClosedConv(convId) {
+  if (!convId) return;
+  closedConvs.delete(convId);
+  closedConvs.add(convId);
+  while (closedConvs.size > CLOSED_CONV_CAP) closedConvs.delete(closedConvs.values().next().value);
+}
 let activeConv = 'main';
 let tabSeq = 1;
 let messages, bubbles, thinks;   // 当前渲染目标(指向某 tab 的 pane/bubbles/thinks)
@@ -900,12 +908,45 @@ function saveSession() {
     setStatus('历史过大，仅保存了部分会话记录');   // 4 轮裁剪后仍超额:不再静默丢数据
   } catch (e) {}
 }
-// 首次拿到上下文(或预览模式启动)时确定 projectKey 并恢复一次。
-function ensureProjectKey(ctx) {
-  if (projectKey !== null) return;
+function normalizedProjectKey(ctx) {
   const root = ctx && ctx.projectInfo && ctx.projectInfo.root;
-  projectKey = root ? String(root) : 'default';
+  const value = root ? String(root).trim().replace(/\\/g, '/').replace(/\/+$/, '') : 'default';
+  return /^[A-Za-z]:\//.test(value) ? value.toLowerCase() : value;
+}
+function resetTabsForProjectChange() {
+  const previousConfig = activeTab() ? Object.assign({}, activeTab().config) : null;
+  for (const t of Object.values(tabs)) {
+    cancelErrorFinish(t.convId);
+    rememberClosedConv(t.convId);
+    toMatlab('close_conv', { convId: t.convId });
+    if (t.pane && t.pane.remove) t.pane.remove();
+    delete tabs[t.convId];
+  }
+  activeConv = 'main'; tabSeq = 1;
+  const main = makeTabState('main', '会话 1');
+  if (previousConfig) Object.assign(main.config, previousConfig);
+  main.pane.classList.add('active');
+  useRender('main');
+  config = main.config; auditLog = main.auditLog; busy = false;
+  renderAttachmentsForTab(main); clearContextDisplay(); renderCostBar(); renderTabs();
+}
+// 上下文中的工程根发生变化时，先落盘旧工程，再重建后端会话并恢复新工程历史。
+function ensureProjectKey(ctx) {
+  const nextKey = normalizedProjectKey(ctx);
+  if (projectKey === null) {
+    projectKey = nextKey;
+    restoreSession();
+    return false;
+  }
+  if (projectKey === nextKey) return false;
+  clearTimeout(saveTimer);
+  saveSession();
+  resetTabsForProjectChange();
+  projectKey = nextKey;
   restoreSession();
+  if (!tabs[activeConv]) switchTab('main');
+  setStatus('工程已切换，会话上下文已隔离');
+  return true;
 }
 function restoreSession() {
   let data;
@@ -1286,7 +1327,7 @@ function closeFork(convId, zone) {
   const holder = zone || (t && t.pane && t.pane.closest('.fork-zone'));
   cancelErrorFinish(convId);
   if (!closedConvs.has(convId)) {
-    closedConvs.add(convId);
+    rememberClosedConv(convId);
     toMatlab('close_conv', { convId });
   }
   delete tabs[convId];
@@ -1894,7 +1935,7 @@ function checkupOnDone(cid, failed) {
     const mc = checkup.mainConv;
     Object.keys(checkup.convs).forEach((k) => {
       cancelErrorFinish(k);
-      closedConvs.add(k);
+      rememberClosedConv(k);
       delete tabs[k];
       toMatlab('close_conv', { convId: k });
     });
@@ -2090,6 +2131,7 @@ function renderRecorder() {
   const active = recorderState.active === true;
   const task = recorderDraft || recorderState.task || {};
   const assessment = recorderState.assessment || { riskLevel: 'medium', readiness: 'not_ready', openRisks: [] };
+  const workflow = recorderState.workflow || { stage: 'draft' };
   const recent = projectChanges.slice(-20).reverse().map((entry) => {
     const target = entry.relativePath || entry.model || '工程';
     const time = String(entry.time || '').slice(11, 19);
@@ -2105,15 +2147,21 @@ function renderRecorder() {
   pop.innerHTML = '<div class="pop-title">模型变更记录器<span class="pop-hint">' + Number(recorderState.changeCount || 0) + '</span></div>' +
     '<div class="rec-head"><span class="rec-dot ' + (active ? 'live' : '') + '"></span><div class="rec-summary"><b>' +
     (active ? escapeHtml(task.title || '正在记录当前工程') : '记录器未启动') +
-    '<span class="rec-risk ' + escapeAttr(assessment.riskLevel || 'medium') + '">' + escapeHtml(assessment.readiness || 'not_ready') +
+    '<span class="rec-risk ' + escapeAttr(assessment.riskLevel || 'medium') + '">' + escapeHtml(workflow.stage || 'draft') + ' · ' + escapeHtml(assessment.readiness || 'not_ready') +
     '</span></b><small>' + escapeHtml(folder) + '</small></div></div>' +
     '<div class="rec-fields"><input id="rec-task-title" maxlength="200" placeholder="任务名称" value="' + escapeAttr(task.title === '未命名变更任务' ? '' : (task.title || '')) + '">' +
     '<input id="rec-task-req" maxlength="500" placeholder="需求/工单 ID，逗号分隔" value="' + escapeAttr(toArr(task.requirementIds).join(', ')) + '">' +
     '<input id="rec-task-owner" maxlength="100" placeholder="责任人" value="' + escapeAttr(task.owner || '') + '">' +
+    '<input id="rec-task-models" maxlength="1000" placeholder="计划模型，逗号分隔" value="' + escapeAttr(toArr(task.plannedModels).join(', ')) + '">' +
+    '<input id="rec-task-files" maxlength="2000" placeholder="计划文件，逗号分隔" value="' + escapeAttr(toArr(task.plannedFiles).join(', ')) + '">' +
+    '<textarea id="rec-task-accept" maxlength="2000" placeholder="验收准则，每行一项">' + escapeHtml(toArr(task.acceptanceCriteria).join('\n')) + '</textarea>' +
     '<textarea id="rec-task-desc" maxlength="1000" placeholder="变更目的与范围">' + escapeHtml(task.description || '') + '</textarea></div>' +
     '<div class="rec-actions"><button id="rec-start" title="开始记录"' + (active ? ' disabled' : '') + '>▶</button>' +
     '<button id="rec-stop" title="停止记录"' + (!active ? ' disabled' : '') + '>■</button>' +
     '<button id="rec-save-task" title="保存任务信息"' + (!recorderState.sessionId ? ' disabled' : '') + '>✓</button>' +
+    '<button id="rec-approve" title="批准变更范围"' + (!(active && workflow.stage === 'draft') ? ' disabled' : '') + '>🔒</button>' +
+    '<button id="rec-execute" title="进入执行阶段"' + (!(active && workflow.stage === 'approved') ? ' disabled' : '') + '>⚙</button>' +
+    '<button id="rec-validate" title="进入验证阶段"' + (!(active && ['executing', 'blocked'].includes(workflow.stage) && Number(recorderState.changeCount || 0) > 0) ? ' disabled' : '') + '>🧪</button>' +
     '<button id="rec-export" title="导出任务证据包"' + (!recorderState.sessionId ? ' disabled' : '') + '>⬇</button></div>' +
     (recent || '<div class="audit-empty">尚未记录到工程变更</div>');
   $('rec-start').onclick = () => toMatlab('change_recorder_control', {
@@ -2121,6 +2169,11 @@ function renderRecorder() {
   });
   $('rec-stop').onclick = () => toMatlab('change_recorder_control', { action: 'stop' });
   $('rec-save-task').onclick = () => toMatlab('change_recorder_control', { action: 'configure', task: recorderTaskPayload() });
+  $('rec-approve').onclick = () => {
+    toMatlab('change_recorder_control', { action: 'approve', task: recorderTaskPayload() });
+  };
+  $('rec-execute').onclick = () => toMatlab('change_recorder_control', { action: 'execute' });
+  $('rec-validate').onclick = () => toMatlab('change_recorder_control', { action: 'validate' });
   $('rec-export').onclick = () => toMatlab('change_recorder_control', { action: 'export' });
   pop.querySelectorAll('.rec-fields input, .rec-fields textarea').forEach((field) => {
     field.addEventListener('input', () => { recorderDraft = recorderTaskPayload(); });
@@ -2137,7 +2190,9 @@ function renderRecorder() {
 
 function recorderTaskPayload() {
   return { title: $('rec-task-title')?.value || '', requirementIds: $('rec-task-req')?.value || '',
-    owner: $('rec-task-owner')?.value || '', description: $('rec-task-desc')?.value || '' };
+    owner: $('rec-task-owner')?.value || '', description: $('rec-task-desc')?.value || '',
+    plannedModels: $('rec-task-models')?.value || '', plannedFiles: $('rec-task-files')?.value || '',
+    acceptanceCriteria: $('rec-task-accept')?.value || '' };
 }
 
 function clearContextDisplay() {
@@ -2148,7 +2203,10 @@ function clearContextDisplay() {
 function renderContext(ctx, tab) {
   ctx = ctx || {};
   tab = tab || activeTab();
-  ensureProjectKey(ctx);          // 首次拿到上下文 → 定项目 key 并恢复历史
+  if (ensureProjectKey(ctx)) {    // 工程切换会重建标签，继续把本次上下文写入新主会话。
+    tab = activeTab();
+    if (tab) tab.context = ctx;
+  }
   const af = ctx.activeFile || {};
   const model = ctx.currentModel || '';
   const sub = ctx.currentSubsystem || '';
@@ -2877,7 +2935,7 @@ function closeTab(convId) {
   const t = tabs[convId];
   if (!t || t.isFork) return;
   cancelErrorFinish(convId);
-  closedConvs.add(convId);
+  rememberClosedConv(convId);
   disposeForksWithin(t.pane);
   t.pane.remove(); delete tabs[convId];
   toMatlab('close_conv', { convId });   // 显式带被关 convId(覆盖默认 activeConv)
@@ -3005,6 +3063,14 @@ $('panes').addEventListener('scroll', (e) => {
   if (el && el.classList && el.classList.contains('pane') && el.classList.contains('active')) scheduleNavSpy();
 }, true);
 window.addEventListener('resize', scheduleNavRail);   // 视口变化 → 刻度位置随高度重算
+function syncFooterHeight() {
+  const footer = document.querySelector('footer');
+  if (footer) document.documentElement.style.setProperty('--footer-h', footer.offsetHeight + 'px');
+}
+const footer = document.querySelector('footer');
+if (footer && typeof ResizeObserver !== 'undefined') new ResizeObserver(syncFooterHeight).observe(footer);
+window.addEventListener('resize', syncFooterHeight);
+syncFooterHeight();
 
 // 初始化主标签页(会话 1)。
 makeTabState('main', '会话 1');

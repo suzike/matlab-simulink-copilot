@@ -12,7 +12,7 @@ export const InMsg = Object.freeze({
   GET_CAPABILITIES: 'get_capabilities', // { type } 请求可用后端/模型/模式/命令
   SLASH_COMMAND: 'slash_command',     // { type, name, args, context, convId?, config? } 执行斜杠命令
   CLOSE_CONV: 'close_conv',           // { type, convId } 关闭一个会话(标签页),停其后端
-  CHANGE_RECORDER_CONTROL: 'change_recorder_control', // { type, action:start|stop|status|configure|export, task? }
+  CHANGE_RECORDER_CONTROL: 'change_recorder_control', // { type, action:start|stop|status|configure|approve|execute|validate|export, task? }
   CHANGE_RECORDER_ENTRY: 'change_recorder_entry',     // { type, entry } MATLAB 事务写入工程时间线
   CHANGE_RECORDER_ENRICH: 'change_recorder_enrich',   // { type, id, sequence, semantic } MATLAB 快照语义结果
   TRANSACTION_READY: 'transaction_ready',             // { type, convId, id, ready }

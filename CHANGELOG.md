@@ -7,6 +7,33 @@
 
 ---
 
+## [0.13.0] — 2026-07-20
+
+### 新增（Added）
+
+- 工程变更集状态机：`draft → approved → executing → validating → delivered/blocked`，任务可声明计划模型、计划文件和验收准则。
+- 记录器异常恢复：自动发现同工程未正常停止的会话，恢复基线、时间线与任务，并对账停机期间变更。
+- 证据包 schema v2 与 `evidence-integrity.json`，支持重新载入和 SHA-256 篡改检测。
+- `setupMATLABCopilot` 安装管理入口，支持 `status/install/repair/uninstall`，并以有界标记块维护用户启动路径。
+- GitHub Actions 增加 MATLAB R2023b / R2025b 与 Simulink 双版本兼容性门禁。
+
+### 修复（Fixed）
+
+- MATLAB 工程根切换时保存并关闭旧工程会话，恢复新工程独立历史，避免会话、上下文和持久化数据串工程。
+- 关闭会话 tombstone 限制为 256 项，避免长期创建标签和 Fork 导致无界增长。
+- 交付判断改为每个受影响模型分别绑定最后变更后的测试和规范证据；多模型任务拒绝未绑定模型的验证结果。
+- 控制连接断开时同时清理事务准备请求；事务检查点失败和超时均确定性拒绝模型编辑。
+
+### 安全（Security）
+
+- 记录器启用时，Auto 模型编辑必须先批准变更范围并进入执行阶段，之后仍需 MATLAB 检查点握手。
+- 追溯矩阵按显式需求、受影响模型和模型级验证结果收敛，不再把全部验证证据无差别关联到所有模型。
+
+### 验证（Verified）
+
+- Sidecar 86 项 Node 测试、Playwright 32 项桌面/窄屏测试和 MATLAB R2025b 9 项测试。
+- CI 配置使用 `matlab-actions/setup-matlab@v3` / `run-command@v3`，矩阵覆盖 R2023b 与 R2025b。
+
 ## [0.11.2] — 2026-07-20
 
 ### 安全（Security）
@@ -281,6 +308,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.13.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.13.0
 [0.11.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.2
 [0.11.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.1
 [0.11.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.0

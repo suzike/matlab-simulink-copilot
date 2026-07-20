@@ -67,6 +67,7 @@ gate('REL-003', '关键源码与图标已跟踪', () => {
     'ui/index.html',
     'matlab/copilot.m',
     'matlab/copilot_doctor.m',
+    'matlab/setupMATLABCopilot.m',
     'matlab/resources/icons/copilot_16.png',
     'matlab/resources/icons/copilot_24.png',
     'sidecar/src/index.js',
@@ -127,6 +128,7 @@ if (artifact) {
     const required = [
       'fsroot/ui/index.html',
       'fsroot/matlab/copilot.m',
+      'fsroot/matlab/setupMATLABCopilot.m',
       'fsroot/matlab/resources/icons/copilot_16.png',
       'fsroot/matlab/resources/icons/copilot_24.png',
       'fsroot/sidecar/src/index.js',

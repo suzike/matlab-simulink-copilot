@@ -16,8 +16,8 @@ jobs:
       run:
         working-directory: sidecar
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: npm
@@ -43,3 +43,24 @@ jobs:
             _verify/playwright-results
             _verify/playwright-report
           if-no-files-found: ignore
+
+  matlab-compatibility:
+    name: MATLAB ${{ matrix.release }} compatibility
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        release: [R2023b, R2025b]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up MATLAB and Simulink
+        uses: matlab-actions/setup-matlab@v3
+        with:
+          release: ${{ matrix.release }}
+          products: Simulink
+          cache: true
+      - name: Run cross-release MATLAB gates
+        uses: matlab-actions/run-command@v3
+        with:
+          command: addpath('matlab'); results=runtests({'test/PanelUtilityTest.m','test/SetupTest.m'}); assertSuccess(results); files=dir(fullfile('matlab','+matlabcopilot','*.m')); for k=1:numel(files), assert(~isempty(meta.class.fromName("matlabcopilot."+erase(string(files(k).name),".m")))); end
