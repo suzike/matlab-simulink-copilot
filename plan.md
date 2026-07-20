@@ -24,7 +24,7 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
-### v0.13.0 可信变更集与记录器 2.0（功能开发完成）
+### v0.13.0 可信变更集与记录器 2.0（正式发布基线）
 
 - 工程切换时保存旧工程会话并重建后端上下文，按规范化工程根恢复独立历史；关闭会话 tombstone 固定上限 256。
 - 记录器按受影响模型分别计算验证新鲜度，要求每个模型在自身最后变更后取得 Test Manager 与规范检查通过结果。
@@ -33,7 +33,7 @@
 - 记录器启用时，Auto 模型编辑必须先批准范围、进入执行阶段并完成 MATLAB 检查点握手。
 - 证据包升级 schema v2，新增关键文件 SHA-256 完整性清单、重新载入和篡改检测。
 - 新增 `setupMATLABCopilot` 安装路径状态、修复和卸载入口；CI 增加 MATLAB R2023b/R2025b + Simulink 矩阵。
-- 验证基线：sidecar **86 tests / 14 files**；Playwright **32 tests**；MATLAB R2025b **9 tests**，并配置 R2023b/R2025b CI。
+- 验证基线：sidecar **86 tests / 14 files**；Playwright **32 tests**；MATLAB R2025b 本地 **9 tests**；最终发布还要求 R2023b/R2025b + Simulink CI、`.mltbx` 替换安装、冷启动路径和 Release 资产校验全部通过。
 
 ### v0.11.0 可信工程代理（功能开发完成）
 

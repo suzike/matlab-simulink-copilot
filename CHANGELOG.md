@@ -33,6 +33,7 @@
 
 - Sidecar 86 项 Node 测试、Playwright 32 项桌面/窄屏测试和 MATLAB R2025b 9 项测试。
 - CI 配置使用 `matlab-actions/setup-matlab@v3` / `run-command@v3`，矩阵覆盖 R2023b 与 R2025b。
+- README、安装指南、开发计划、维护手册、贡献指南和 Release 清单已同步至 v0.13.0；两张 README 主图由当前前端源码可复现生成，旧版本截图从发布文档目录移除。
 
 ## [0.11.2] — 2026-07-20
 

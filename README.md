@@ -13,7 +13,7 @@
 ![Tests](https://img.shields.io/badge/sidecar-86%20tests-16a34a)
 ![Runtime dependencies](https://img.shields.io/badge/sidecar-0%20npm%20dependencies-0f766e)
 
-[安装指南](INSTALL.md) · [变更日志](CHANGELOG.md) · [开发计划](plan.md) · [最新 Release](https://github.com/suzike/matlab-simulink-copilot/releases/latest)
+[安装指南](INSTALL.md) · [变更日志](CHANGELOG.md) · [开发计划](plan.md) · [贡献指南](CONTRIBUTING.md) · [最新 Release](https://github.com/suzike/matlab-simulink-copilot/releases/latest)
 
 </div>
 
@@ -275,7 +275,7 @@ sidecar/
   src/permissionServer.js         零依赖 MCP JSON-RPC 权限服务
   src/projectChangeRecorder.js    工程文件基线、快照、时间线与报告
   src/adapters/                   Claude Code / Codex / Echo
-  test/                           86 个测试，14 个测试文件
+  test/                           MATLAB 事务、模型差异、面板辅助与安装器测试
 docs/images/                      当前产品截图与静态 SVG 图
 ```
 
@@ -325,6 +325,8 @@ release_acceptance('MATLAB-Copilot.mltbx', ...
 
 当前主分支发布门槛包括：86 个 sidecar 测试、32 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB R2023b/R2025b CI、R2025b `checkcode` / 类加载与 9 项真实事务/快照/安装辅助逻辑测试、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
 
+开发环境、代码边界、提交前测试和 Pull Request 要求见 [贡献指南](CONTRIBUTING.md)。正式发布必须遵循 [Release 验收清单](docs/RELEASE_CHECKLIST.md)，并以最终标签对应的 `.mltbx` 为验收对象。
+
 ## 已知边界
 
 - Simulink 新版右键菜单使用扩展点 API，当前稳定入口是面板中的“解释选中”。
@@ -335,4 +337,4 @@ release_acceptance('MATLAB-Copilot.mltbx', ...
 
 ## License
 
-见 [LICENSE](LICENSE)。
+当前仓库尚未声明开源许可证。除非版权所有者另行书面授权，否则保留所有权利。

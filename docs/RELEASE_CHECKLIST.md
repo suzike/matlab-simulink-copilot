@@ -48,12 +48,50 @@ report = release_acceptance('MATLAB-Copilot.mltbx', ...
 
 如果当前环境已经安装 MATLAB-Copilot，脚本默认拒绝替换。只有确认可覆盖该环境时才设置 `AllowReplace=true`。
 
+替换安装后必须用一个未注入仓库源码路径的新 MATLAB 进程确认真实 Add-On 版本和冷启动路径：
+
+```matlab
+s = setupMATLABCopilot("status");
+assert(s.ok && s.startupManaged)
+assert(contains(which('copilot'), 'MATLAB Add-Ons'))
+```
+
+## MATLAB 跨版本 CI
+
+`.github/workflows/quality-gates.yml` 必须在最终提交上完成以下三个 job：
+
+1. `sidecar-ui-release`：Node、Playwright 和静态发布门禁。
+2. `MATLAB R2023b compatibility`：R2023b + Simulink 类加载、静态检查和兼容性测试。
+3. `MATLAB R2025b compatibility`：R2025b + Simulink 同一组跨版本门禁。
+
+任一 job 未完成、跳过或失败时不得发布正式 Release。
+
+## 文档与截图
+
+README 主图应从当前前端源码可复现生成：
+
+```powershell
+Set-Location sidecar
+node ..\scripts\capture-doc-screenshots.mjs
+```
+
+生成后人工检查两张 v0.13.0 JPG：功能区、变更记录器弹层、输入框和底栏不得重叠，按钮不得裁切或文字越界。静态 SVG 架构图、数据流图、功能图和会话生命周期图必须与 `AGENTS.md` 中的协议和安全边界一致。
+
 ## 发布前人工确认
 
 - GitHub Actions `Quality gates` 通过。
 - MATLAB 验收 JSON 状态为 `PASS`。
 - Ask / Auto / Plan 权限矩阵在真实 MATLAB 面板中抽查通过。
 - 多标签、Fork、Stop、关闭会话和附件清理抽查通过。
-- MATLAB R2025b 从当前源码重新 `exportapp` 两张 README 主图，并人工确认工具栏、三态控件、快捷栏和权限卡与 Release 一致。
+- 从当前 `ui/index.html` 可复现生成两张 README 全屏浏览器截图，并人工确认工具栏、三态控件、快捷栏、输入框和记录器弹层与 Release 一致。
 - 重新生成 `MATLAB-Copilot.mltbx` 与 SHA-256。
 - Release 资产来自当前提交，版本号与 README、CHANGELOG、package 和工具箱一致。
+
+## GitHub Release 核验
+
+创建 `vX.Y.Z` 标签和正式 Release 后，至少上传：
+
+- `MATLAB-Copilot.mltbx`
+- `SHA256SUMS.txt`
+
+发布完成后重新下载或查询 Release 资产，确认标签指向最终提交、两个附件均存在、`.mltbx` 大小非零，且其 SHA-256 与 `SHA256SUMS.txt` 一致。Release 页面不得保持 Draft 或错误标记为 Pre-release。

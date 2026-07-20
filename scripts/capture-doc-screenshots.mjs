@@ -18,6 +18,10 @@ await page.evaluate(() => {
     projectInfo: { root: 'E:/Projects/ThermalManagement', branch: 'feature/REQ-241',
       projectFiles: ['models/ThermalManagementController.slx', 'tests/ThermalManagementController_tests.mldatx'] },
   } });
+});
+await page.waitForTimeout(100);
+
+await page.evaluate(() => {
   onSidecar({ type: 'user_echo', convId: 'main', text: '按照 REQ-241 调整压缩机增益，并完成变更验证。' });
   onSidecar({ type: 'thinking_start', convId: 'main', id: 'doc-think' });
   onSidecar({ type: 'thinking_delta', convId: 'main', id: 'doc-think', text: '先读取当前模型参数和需求影响范围，再建立模型检查点。' });
@@ -34,6 +38,7 @@ await page.evaluate(() => {
     newStandardErrors: [], manifestFile: 'C:/Users/demo/.matlab-copilot/runs/run-req-241/manifest.json' });
   onSidecar({ type: 'result', convId: 'main', ok: true, costUsd: 0.018 });
 });
+await page.waitForTimeout(600);
 await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.13.0-ui-overview.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 
 await page.evaluate(() => {
