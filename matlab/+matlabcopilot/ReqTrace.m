@@ -29,7 +29,8 @@ classdef ReqTrace
                     end
                     src = "requirements.json";
                 elseif isfile(fc)
-                    T = readtable(fc, 'TextType', 'string', 'VariableNamingRule', 'preserve');
+                    T = readtable(fc, 'Delimiter', ',', 'TextType', 'string', ...
+                        'VariableNamingRule', 'preserve');
                     vn = string(T.Properties.VariableNames);
                     ci = matlabcopilot.ReqTrace.colOf(vn, ["id", "ID", "需求ID", "编号"], 1);
                     ct = matlabcopilot.ReqTrace.colOf(vn, ["title", "标题", "名称", "name"], 2);

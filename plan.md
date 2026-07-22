@@ -24,6 +24,20 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.14.0 MBSE 工程流程（正式发布基线）
+
+- 新增工程内 `MBSEWorkflow` 状态机，R/F/L/P/V 五阶段全部开放；每阶段按 `draft → proposed → approved → generated → executed → confirmed` 推进。
+- 所有状态和设计源写入工程 `mbse/`，构建脚本可重复执行；生成物只允许覆盖清单登记的工作流资产，同名陌生文件默认拒绝。
+- R 阶段从 CSV/JSON 生成原生 `SystemRequirements.slreqx`，确认时核对源条目数与原生需求集条目数。
+- F 阶段校验需求全覆盖、功能唯一性和连接端点，生成独立 System Composer Functional `.slx`、接口 `.sldd`，并建立 Function → Requirement Implement 链接。
+- L/P 分别生成独立 Logical/Physical `.slx/.sldd`，建立 F→L 与 L→P `.mldatx` Allocation Set；P 层应用质量、功耗、成本 Profile。
+- V 阶段支持架构追溯、MATLAB Test、Test Manager 和人工评审证据，要求需求全覆盖并生成 JSON/Markdown 报告。
+- 每次提案绑定当前设计源 SHA-256；源文件改变后必须重新提案，且当前及下游状态自动作废。
+- 支持 Brownfield 从 F 阶段进入，但必须显式接受既有需求为基线。
+- Panel 新增 MBSE 弹窗；初始化、提案、批准、生成、执行和确认复用本地权限卡、Plan 门禁、审计及工程变更记录器。
+- 修复 `ReqTrace` CSV 分隔符依赖自动推断的问题，明确使用逗号，避免英文需求表被错误按空格拆列。
+- 当前验证：sidecar **86 tests**；Playwright **34 tests**；MATLAB MBSE 测试在 R2025b 真实生成 `.slreqx/.slx/.sldd/.mldatx/Profile`，校验三层组件、连接、Implement 链接、层间分配、验证报告、幂等重建和陌生工件覆盖保护。完整 MATLAB 基线为 **12 tests**，最终发布前仍需 R2023b CI 与安装包验收。
+
 ### v0.13.0 可信变更集与记录器 2.0（正式发布基线）
 
 - 工程切换时保存旧工程会话并重建后端上下文，按规范化工程根恢复独立历史；关闭会话 tombstone 固定上限 256。
@@ -33,7 +47,7 @@
 - 记录器启用时，Auto 模型编辑必须先批准范围、进入执行阶段并完成 MATLAB 检查点握手。
 - 证据包升级 schema v2，新增关键文件 SHA-256 完整性清单、重新载入和篡改检测。
 - 新增 `setupMATLABCopilot` 安装路径状态、修复和卸载入口；CI 增加 MATLAB R2023b/R2025b + Simulink 矩阵。
-- 验证基线：sidecar **86 tests / 14 files**；Playwright **32 tests**；MATLAB R2025b 本地 **9 tests**；最终发布还要求 R2023b/R2025b + Simulink CI、`.mltbx` 替换安装、冷启动路径和 Release 资产校验全部通过。
+- 发布时验证基线：sidecar **86 tests / 14 files**；Playwright **32 tests**；MATLAB R2025b 本地 **9 tests**；当前主分支基线见 v0.14.0。
 
 ### v0.11.0 可信工程代理（功能开发完成）
 
@@ -155,6 +169,12 @@
 
 ## 4. 待办 / 路线
 
+### MBSE 后续增强
+
+1. 证据融合：把覆盖率、规范检查和变更记录器证据作为 V 阶段的原生方法，并检查证据新鲜度。
+2. 分析：对 P 层质量、功耗、成本 stereotype 做 roll-up 与预算视图；只有真实需求包含预算约束时启用。
+3. 模板化：按企业流程配置可选阶段、命名规范、需求属性、架构 Profile 和验收准则，不硬编码单一行业流程。
+
 ### 对标官方 Simulink Copilot 的 6 项能力(差距追踪)
 | # | 官方能力 | 状态 |
 |---|---|---|
@@ -187,6 +207,8 @@
 ## 5. 验证方式
 
 - 单测:`cd sidecar && npm test`。
+- UI 回归:`cd sidecar && npm run test:ui`（当前 desktop/narrow 共 34 项）。
+- MATLAB 回归:`matlab -batch "addpath('matlab'); r=runtests({'test/ChangeTransactionTest.m','test/ModelFileDiffTest.m','test/PanelUtilityTest.m','test/SetupTest.m','test/MBSEWorkflowTest.m'}); assertSuccess(r)"`。
 - 不连 MATLAB 联调:`node src/index.js`(设 `MATLAB_COPILOT_BACKEND`)+ `node dev-client.mjs <port> "<问题>"`。
 - 真实面板:`copilot()` 后在工具栏切后端/模型/模式,发消息看流式+思考+工具卡。
 - UI 视觉:`ui/` 起静态服务用浏览器预览(`.claude/launch.json` 已配 python http.server),`onSidecar({...})` 注入样例事件。

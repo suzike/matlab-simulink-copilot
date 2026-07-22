@@ -6,7 +6,7 @@
 
 停靠式 `uihtml` 面板，自动感知 MATLAB 工程和活动模型，通过本地 sidecar 驱动 Claude Code / Codex，并复用 MATLAB MCP 操作当前 MATLAB 会话。
 
-[![Version](https://img.shields.io/badge/version-0.13.0-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.13.0)
+[![Version](https://img.shields.io/badge/version-0.14.0-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.0)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/backends-Claude%20Code%20%7C%20Codex-2563eb)
@@ -19,10 +19,10 @@
 
 ## 当前实机界面
 
-下面两张图由仓库当前 `ui/index.html` 在全屏浏览器预览中生成，展示与 MATLAB `uihtml` 面板相同的前端代码、布局和交互状态。
+下面三张图由 v0.14.0 的 `ui/index.html` 在全屏浏览器预览中生成，展示与 MATLAB `uihtml` 面板相同的前端代码、布局和交互状态。
 
 <div align="center">
-  <img src="docs/images/v0.13.0-ui-overview.jpg" width="900" alt="MATLAB Copilot v0.13.0 全屏界面与可信变更事务">
+  <img src="docs/images/v0.14.0-ui-overview.jpg" width="900" alt="MATLAB Copilot v0.14.0 全屏界面与可信变更事务">
   <br>
   <sub>全屏浏览器预览：活动工程上下文、Echo 全链路冒烟、当前工具栏与 MBD 快捷动作。</sub>
 </div>
@@ -30,10 +30,56 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/v0.13.0-change-recorder.jpg" width="900" alt="MATLAB Copilot v0.13.0 分阶段工程模型变更记录器">
+  <img src="docs/images/v0.14.0-change-recorder.jpg" width="900" alt="MATLAB Copilot v0.14.0 分阶段工程模型变更记录器">
   <br>
   <sub>全屏浏览器预览：变更范围、批准/执行/验证阶段、模型级交付判断与证据包状态。</sub>
 </div>
+
+<br>
+
+<div align="center">
+  <img src="docs/images/v0.14.0-mbse-workflow.jpg" width="900" alt="MATLAB Copilot v0.14.0 MBSE RFLPV 工程流程">
+  <br>
+  <sub>全屏浏览器预览：完整 RFLPV 状态、分阶段设计源、人工批准门禁和真实工具箱能力。</sub>
+</div>
+
+## v0.14.0 重点
+
+- **工程内 MBSE 状态机**：按 R/F/L/P/V 保存阶段状态，执行 `提案 → 批准 → 生成 → 执行 → 确认`，上一阶段未确认时不能推进下一阶段。
+- **原生需求工件**：从版本化 `requirements.csv/json` 幂等生成 `SystemRequirements.slreqx`，验证源条目数与原生需求集一致。
+- **System Composer 功能架构**：从 `mbse/architecture/functional-architecture.json` 生成独立 Functional `.slx` 与接口 `.sldd`，建立需求到功能组件的 Implement 链接，并拒绝未覆盖需求、重复功能和无效连接。
+- **逻辑与物理架构**：从独立 JSON 设计源重建 Logical/Physical `.slx/.sldd`，生成 F→L 与 L→P `.mldatx` Allocation Set；物理层附加质量、功耗和成本 Profile。
+- **验证计划与报告**：`mbse/verification-plan.json` 支持 `architecture_trace` / `matlab_test` / `test_manager` / `artifact_review`，对每条需求强制分配验证项并输出 JSON/Markdown 报告。
+- **工程资产安全**：清单只允许重建工作流自己登记的生成物；遇到同名陌生 `.slx/.sldd/.slreqx` 时拒绝覆盖。
+- **批准基线防漂移**：提案保存设计源 SHA-256；批准、构建、确认和下游提案前都会重新核对，发生修改必须重新提案并自动作废下游状态。
+- **沿用可信执行链**：初始化、批准、生成、执行和确认均复用 MATLAB 本地权限卡、Plan 只读门禁、审计日志和工程变更记录器。
+- **Brownfield 入口**：可显式接受既有需求基线并从 F 阶段进入，后续 L/P/V 仍按相同人工门禁推进。
+
+工程会创建以下可版本化目录：
+
+完整设计源字段、验证方法和阶段迁移见 [MBSE RFLPV 工程流程](docs/MBSE_WORKFLOW.md)。
+
+```text
+mbse/
+  mbse-workflow.json
+  requirements/requirements.csv
+  architecture/functional-architecture.json
+  architecture/logical-architecture.json
+  architecture/physical-architecture.json
+  verification-plan.json
+  scripts/buildRequirements.m
+  scripts/buildFunctional.m
+  scripts/buildLogical.m
+  scripts/buildPhysical.m
+  scripts/runVerification.m
+  generated/requirements/SystemRequirements.slreqx
+  generated/architecture/<System>{Functional,Logical,Physical}.slx
+  generated/architecture/<System>{Functional,Logical,Physical}Interfaces.sldd
+  generated/architecture/<System>FunctionalToLogical.mldatx
+  generated/architecture/<System>LogicalToPhysical.mldatx
+  generated/architecture/<System>PhysicalProfile.xml
+  generated/verification/verification-report.{json,md}
+```
 
 ## v0.13.0 重点
 
@@ -72,7 +118,7 @@ v0.10.3 完成的 MATLAB R2023b / 高缩放界面优化继续保留：
 - **无可见滚动条**：单行模式保留横向滚动能力但隐藏滚动条，避免额外占用垂直空间。
 - **输入区稳定**：三态只改变快捷功能行，配置工具栏、附件和对话输入框不参与缩放或折叠。
 - **工具栏修复**：修复快捷按钮悬停上边缘裁切，以及模型列表为空时出现孤立下拉箭头。
-- **R2023b 等效回归**：760×600 受限视口继续覆盖；当前共 32 项 Playwright 用例在桌面和窄屏项目全部通过。
+- **R2023b 等效回归**：760×600 受限视口继续覆盖；当前共 34 项 Playwright 用例在桌面和窄屏项目全部通过。
 
 v0.10.2 完成的会话资源隔离继续保留：
 
@@ -80,7 +126,7 @@ v0.10.2 完成的会话资源隔离继续保留：
 - **每会话附件队列**：待发送文件、粘贴图片、单项移除、清空、消费和临时文件清理均按 `convId` 执行。
 - **Fork 输入隔离**：分支粘贴与附件列表固定绑定对应 Fork，不再误用主标签的活动会话。
 - **关闭资源回收**：关闭标签或 Fork 时只清理目标会话的配置、上下文和临时附件，不影响其他会话。
-- **隔离与布局回归测试**：Playwright 在桌面与窄屏验证标签切换、后台事件、Fork 附件、工程切换、墓碑上限、快捷功能三态和变更记录器任务证据，共 32 项用例。
+- **隔离与布局回归测试**：Playwright 在桌面与窄屏验证标签切换、后台事件、Fork 附件、工程切换、墓碑上限、快捷功能三态、变更记录器与 MBSE 流程，共 34 项用例。
 
 ### 工程模型变更记录器
 
@@ -114,12 +160,12 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 系统架构
 
 <div align="center">
-  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.13.0 静态系统架构图">
+  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.14.0 静态系统架构图">
 </div>
 
 | 层 | 当前职责 | 关键实现 |
 |---|---|---|
-| MATLAB / Simulink | 内嵌 UI、上下文采集、每会话配置/快照/附件、本地确定性 MBD 和本地权限 | `Panel.m`、`Context.m`、`Bridge.m`、`+matlabcopilot/*` |
+| MATLAB / Simulink | 内嵌 UI、上下文采集、每会话配置/快照/附件、本地确定性 MBD、MBSE 阶段工件和本地权限 | `Panel.m`、`Context.m`、`Bridge.m`、`MBSEWorkflow.m`、`+matlabcopilot/*` |
 | Node sidecar | 多会话注册表、adapter 生命周期、流式事件翻译、控制端口权限、审计 | `server.js`、`protocol.js`、`permissionServer.js` |
 | 后端 | 推理、工具规划、回答生成；Claude 可选常驻，Codex 使用结构化 JSON 事件 | `ClaudeCodeAdapter`、`CodexAdapter` |
 | MATLAB MCP | 读取、修改、测试当前已共享的 MATLAB / Simulink 会话 | `matlab-mcp-server` |
@@ -135,7 +181,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ### 一轮消息的数据流
 
 <div align="center">
-  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.13.0 消息数据流图">
+  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.14.0 消息数据流图">
 </div>
 
 - MATLAB 与 sidecar 使用 localhost TCP + 行分隔 JSON；线上字符串统一转为 ASCII `\uXXXX`，规避 `tcpclient` UTF-8 解码问题。
@@ -147,7 +193,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 功能全景
 
 <div align="center">
-  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.13.0 功能全景图">
+  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.14.0 功能全景图">
 </div>
 
 ### AI 与模型交互
@@ -175,6 +221,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 | `StandardsChecker` | 本地规则检查；支持项目级 `modeling_rules.json` |
 | `TestBridge` | 发现并运行 `.mldatx`，汇总用例和决策/条件/MCDC 覆盖率缺口 |
 | `ReqTrace` | `requirements.csv` 与模型 block 双向锚定，结果写入可版本化 JSON |
+| `MBSEWorkflow` | 工程内 RFLPV 状态机；原生 `.slreqx`、三层 System Composer 架构、Allocation Set、物理 Profile 与验证报告 |
 | `SfExplain` | Stateflow 结构提取、不可达状态和无出口逻辑检查 |
 | `ImpactScan` | 修改接口、信号、变量前扫描引用和影响面 |
 | `SimInsight` | 读取最近 SDI run，计算终值、超调、稳定时间和范围 |
@@ -199,7 +246,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 权限与安全
 
 <div align="center">
-  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.13.0 权限与安全逻辑图">
+  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.14.0 权限与安全逻辑图">
 </div>
 
 | 模式 | 只读操作 | 修改模型/写文件 | 执行 MATLAB / shell / 测试 | MATLAB 本地确定性副作用 |
@@ -230,6 +277,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 | Node.js | 20 或更高；sidecar 无运行时 npm 依赖 |
 | AI 后端 | Claude Code 或 Codex CLI，至少安装并登录一个 |
 | MATLAB MCP | Simulink Agentic Toolkit 与 `matlab-mcp-server`；需要调用模型工具时执行 `satk_initialize` |
+| MBSE 可选组件 | Requirements Toolbox 用于 R 工件和 Implement 链接；System Composer 用于 F/L/P 架构、Allocation Set 与 Profile；V 中的 Test Manager 方法需 Simulink Test |
 
 ### 安装与启动
 
@@ -323,7 +371,7 @@ release_acceptance('MATLAB-Copilot.mltbx', ...
 
 详细发布步骤和受保护的 Add-On 安装验收见 [Release 验收清单](docs/RELEASE_CHECKLIST.md)。
 
-当前主分支发布门槛包括：86 个 sidecar 测试、32 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB R2023b/R2025b CI、R2025b `checkcode` / 类加载与 9 项真实事务/快照/安装辅助逻辑测试、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
+当前主分支发布门槛包括：86 个 sidecar 测试、34 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB R2023b/R2025b CI、R2025b `checkcode` / 类加载与 12 项真实事务/快照/MBSE/安装辅助逻辑测试、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
 
 开发环境、代码边界、提交前测试和 Pull Request 要求见 [贡献指南](CONTRIBUTING.md)。正式发布必须遵循 [Release 验收清单](docs/RELEASE_CHECKLIST.md)，并以最终标签对应的 `.mltbx` 为验收对象。
 

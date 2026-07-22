@@ -7,6 +7,31 @@
 
 ---
 
+## [Unreleased]
+
+## [0.14.0] — 2026-07-22
+
+### 新增（Added）
+
+- 新增 `MBSEWorkflow` 工程状态机，完整实现 R/F/L/P/V 的提案、批准、生成、执行和确认门禁。
+- 从版本化 CSV/JSON 幂等生成 Requirements Toolbox 原生 `.slreqx`；从三层架构 JSON 生成 System Composer Functional/Logical/Physical `.slx` 与接口 `.sldd`。
+- 功能架构提案强制需求覆盖、唯一功能名和有效连接端点，并建立 System Composer 组件到需求的 Implement 链接。
+- L/P 阶段强制上游分配全覆盖，生成并回读核对 F→L、L→P `.mldatx`；P 层生成并应用质量、功耗、成本 Profile。
+- V 阶段支持架构追溯、MATLAB Test、Test Manager 和人工评审证据，要求所有需求均有验证项并输出 JSON/Markdown 报告。
+- 提案绑定设计源 SHA-256；设计源漂移后拒绝继续批准/执行，支持重新提案并作废当前及下游阶段。
+- 工具栏新增 MBSE 工程流程弹窗，复用现有本地权限、Plan 只读、审计和工程变更记录器。
+- 支持复用既有需求并从 F 阶段进入。
+
+### 修复（Fixed）
+
+- `ReqTrace` 和 MBSE 需求导入明确指定 CSV 逗号分隔，避免 MATLAB 在部分英文需求表上误判为空格分隔。
+- 工作流只允许重建清单登记过的生成物，拒绝覆盖同名但来源不明的 `.slreqx/.slx/.sldd/.mldatx/Profile/报告`。
+
+### 验证（Verified）
+
+- Sidecar 86 项 Node 测试、Playwright 34 项桌面/窄屏测试通过。
+- MATLAB R2025b 真实生成并验证 `.slreqx/.slx/.sldd/.mldatx/Profile`；MBSE 测试覆盖状态迁移、三层架构、Implement 链接、分配回读、验证报告、幂等重建与未授权覆盖保护。
+
 ## [0.13.0] — 2026-07-20
 
 ### 新增（Added）
@@ -309,6 +334,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.14.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.0
 [0.13.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.13.0
 [0.11.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.2
 [0.11.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.1

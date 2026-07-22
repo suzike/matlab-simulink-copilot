@@ -1,8 +1,13 @@
-function summary = copilot_doctor()
+function summary = copilot_doctor(opts)
 % COPILOT_DOCTOR  MATLAB Copilot 环境自诊断。
 %   逐项 PASS/FAIL + 可操作的一行修复指令；统计失败项并给出结论。
 %
 %   用法: copilot_doctor()
+%         copilot_doctor(Ports=[9000 9001])
+
+arguments
+    opts.Ports (1,2) double {mustBeInteger, mustBePositive} = [8765 8766]
+end
 
 fprintf('\n=== MATLAB Copilot 环境自检 ===\n\n');
 
@@ -12,7 +17,7 @@ results{end+1} = checkCLI();
 results{end+1} = checkMcpServer();
 results{end+1} = checkSatkInit();
 results{end+1} = checkSidecarDeps();
-results{end+1} = checkPort();
+results{end+1} = checkPort(opts.Ports);
 
 fails = sum(cellfun(@(r) ~r.ok, results));
 summary = struct( ...
@@ -138,9 +143,8 @@ else
 end
 end
 
-function r = checkPort()
-r.name = '端口 8765/8766 (sidecar 通信/权限端口)';
-ports = [8765 8766];
+function r = checkPort(ports)
+r.name = sprintf('端口 %d/%d (sidecar 通信/权限端口)', ports(1), ports(2));
 busy = [];
 for p = ports
     try
@@ -154,7 +158,8 @@ if isempty(busy)
     r = pass(r, '端口空闲');
 else
     r = fail(r, ['端口已被占用: ' char(strjoin(string(busy), ', '))], ...
-        '先关闭占用进程，或用 copilot(Port=9000, ControlPort=9001) 指定一组空闲端口。');
+        sprintf('先关闭占用进程，或用 copilot(Port=%d, ControlPort=%d) 指定一组空闲端口。', ...
+        ports(1) + 1000, ports(2) + 1000));
 end
 end
 

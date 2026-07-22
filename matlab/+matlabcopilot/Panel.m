@@ -215,6 +215,8 @@ classdef Panel < handle
                         'projectRoot', char(string(getfieldor(data, 'projectRoot', ""))), ...
                         'task', getfieldor(data, 'task', struct()), ...
                         'convId', char(obj.ActiveConv)));
+                case "mbse_workflow"
+                    obj.handleMBSEWorkflow(data);
                 case "slash_command"
                     obj.Bridge.send(struct('type', "slash_command", ...
                         'name', getfieldor(data, 'name', ""), ...
@@ -841,6 +843,56 @@ classdef Panel < handle
             txt = "存经验失败；若 index.json 已损坏，请先修复后重试。";
             if ok; txt = "📌 已存入团队经验库(.copilot_kb/)"; end
             obj.pushToUi(struct('type', "status", 'convId', cc, 'text', txt));
+        end
+
+        function handleMBSEWorkflow(obj, data)
+            cc = char(obj.ActiveConv);
+            action = lower(string(getfieldor(data, 'action', "status")));
+            phase = upper(string(getfieldor(data, 'phase', "R")));
+            config = getfieldor(data, 'workflowConfig', struct());
+            root = string(getfieldor(data, 'projectRoot', ""));
+            if strlength(strtrim(root)) == 0
+                try
+                    ctx = obj.contextForConv(cc, true);
+                    root = string(ctx.projectInfo.root);
+                catch
+                end
+            end
+            if strlength(strtrim(root)) == 0; root = string(obj.Bridge.Cwd); end
+            if action == "status"
+                result = matlabcopilot.MBSEWorkflow.apply(root, action, phase, config);
+                obj.pushMBSEWorkflowResult(cc, result);
+                return;
+            end
+            input = struct('projectRoot', char(root), 'action', char(action), ...
+                'phase', char(phase), 'workflowConfig', config);
+            manifest = fullfile(char(root), 'mbse', 'mbse-workflow.json');
+            diff = struct('type', "file_write", 'file', manifest, 'exists', isfile(manifest));
+            labels = struct('initialize', "初始化 MBSE 工作区", 'propose', "提交阶段提案", ...
+                'approve', "批准阶段提案", 'generate', "生成阶段构建脚本", ...
+                'run', "执行真实 MATLAB 工件构建", 'confirm', "确认阶段验证结果");
+            label = action;
+            key = matlab.lang.makeValidName(char(action));
+            if isfield(labels, key); label = labels.(key); end
+            obj.requestLocalPermission("matlabcopilot__local__mbse_workflow", input, diff, ...
+                string(label) + " [" + phase + "]", ...
+                @() obj.runLocalMBSEWorkflow(root, action, phase, config, cc), false);
+        end
+
+        function ok = runLocalMBSEWorkflow(obj, root, action, phase, config, cc)
+            result = matlabcopilot.MBSEWorkflow.apply(root, action, phase, config);
+            obj.pushMBSEWorkflowResult(cc, result);
+            if isfield(result, 'entry') && isstruct(result.entry) && ~isempty(fieldnames(result.entry))
+                obj.Bridge.send(struct('type', "change_recorder_entry", 'convId', cc, ...
+                    'entry', result.entry));
+            end
+            ok = logical(result.ok);
+        end
+
+        function pushMBSEWorkflowResult(obj, cc, result)
+            obj.pushToUi(struct('type', "mbse_workflow_state", 'convId', cc, ...
+                'state', result.state, 'ok', logical(result.ok), 'message', result.message));
+            obj.pushToUi(struct('type', "status", 'convId', cc, 'text', result.message));
         end
 
         function aiRequirements(obj)

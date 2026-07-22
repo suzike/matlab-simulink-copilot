@@ -153,6 +153,45 @@ test('工程模型变更记录器展示状态、时间线与报告路径', async
   await expect(page.locator('#status')).toHaveText('任务证据包已导出');
 });
 
+test('MBSE 工程流程展示完整 RFLPV 状态与分阶段源', async ({ page }) => {
+  await page.evaluate(() => onSidecar({ type: 'mbse_workflow_state', message: '已读取 MBSE 工作流状态', state: {
+    initialized: true, projectRoot: 'C:/work/thermal', systemName: 'ThermalController',
+    description: '热管理控制系统', currentPhase: 'F', requirementsSource: 'requirements.csv',
+    functionalSource: 'mbse/architecture/functional-architecture.json',
+    logicalSource: 'mbse/architecture/logical-architecture.json',
+    physicalSource: 'mbse/architecture/physical-architecture.json',
+    verificationSource: 'mbse/verification-plan.json',
+    capabilities: { requirementsToolbox: true, systemComposer: true, matlabProject: true },
+    phases: [
+      { id: 'R', name: '需求', status: 'confirmed', summary: '2 条需求已确认' },
+      { id: 'F', name: '功能架构', status: 'proposed', summary: '2 个功能、1 条连接已校验' },
+      { id: 'L', name: '逻辑架构', status: 'planned' },
+      { id: 'P', name: '物理架构', status: 'planned' },
+      { id: 'V', name: '验证', status: 'planned' },
+    ],
+  } }));
+  await page.locator('#tb-mbse').click();
+  await expect(page.locator('#mbse-pop')).toBeVisible();
+  await expect(page.locator('#mbse-pop')).toContainText('ThermalController');
+  await expect(page.locator('#mbse-pop')).toContainText('Requirements 可用 · System Composer 可用');
+  await page.locator('[data-mbse-phase="F"]').click();
+  await expect(page.locator('#mbse-approve')).toBeEnabled();
+  await expect(page.locator('#mbse-generate')).toBeDisabled();
+  await expect(page.locator('[data-mbse-phase="L"]')).toBeEnabled();
+  await page.locator('[data-mbse-phase="L"]').click();
+  await expect(page.locator('#mbse-pop')).toContainText('mbse/architecture/logical-architecture.json');
+  await expect(page.locator('#mbse-propose')).toBeDisabled();
+  await page.locator('[data-mbse-phase="V"]').click();
+  await expect(page.locator('#mbse-pop')).toContainText('mbse/verification-plan.json');
+  const bounds = await page.evaluate(() => {
+    const pop = document.querySelector('#mbse-pop').getBoundingClientRect();
+    const footer = document.querySelector('footer').getBoundingClientRect();
+    return { bottom: pop.bottom, footerTop: footer.top, right: pop.right, viewport: innerWidth };
+  });
+  expect(bounds.bottom).toBeLessThanOrEqual(bounds.footerTop - 7);
+  expect(bounds.right).toBeLessThanOrEqual(bounds.viewport);
+});
+
 test('Markdown 链接不能注入事件属性', async ({ page }) => {
   const result = await page.evaluate(() => {
     const host = document.createElement('div');

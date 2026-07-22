@@ -60,6 +60,6 @@
     <text x="52" y="440">● control 断开 / 会话关闭 → 清理悬挂请求</text>
     <text x="470" y="396">● Auto 未知工具默认拒绝；Codex 先代理后执行</text>
     <text x="470" y="418">● 审计先记 pending，执行结果再转 ok / failed</text>
-    <text x="470" y="440">● 本地写入、仿真、测试也必须经同一确认卡</text>
+    <text x="470" y="440">● 本地写入、RFLPV 构建、仿真/测试均经同一确认卡</text>
   </g>
 </svg>

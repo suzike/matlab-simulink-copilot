@@ -12,8 +12,8 @@
   </defs>
   <rect width="920" height="620" rx="14" fill="url(#bg)"/>
 
-  <text x="36" y="46" fill="#f3f0fa" font-size="22" font-weight="700">MATLAB / Simulink Copilot v0.13.0 — 运行时架构</text>
-  <text x="36" y="70" fill="#9a92ad" font-size="13">真实 MATLAB 内嵌 UI · 可信模型事务 · 工程变更时间线 · 双后端与 MATLAB MCP</text>
+  <text x="36" y="46" fill="#f3f0fa" font-size="22" font-weight="700">MATLAB / Simulink Copilot v0.14.0 — 运行时架构</text>
+  <text x="36" y="70" fill="#9a92ad" font-size="13">真实 MATLAB 内嵌 UI · 可信模型事务 · RFLPV 工程流程 · 双后端与 MATLAB MCP</text>
 
   <!-- Layer 1: MATLAB UI -->
   <rect x="36" y="96" width="848" height="120" rx="12" fill="#241d35" stroke="#3a3050"/>
@@ -26,7 +26,7 @@
   <text x="440" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">工程索引 · 每会话配置/快照 · 隔离附件</text>
   <rect x="580" y="134" width="284" height="66" rx="8" fill="#2c2440" stroke="#473a63"/>
   <text x="722" y="160" fill="#ece8f6" font-size="13" font-weight="600" text-anchor="middle">确定性 MBD 工具链</text>
-  <text x="722" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">事务回退 · 快照语义 diff · 规范/覆盖/追溯</text>
+  <text x="722" y="182" fill="#9a92ad" font-size="11" text-anchor="middle">事务回退 · RFLPV 工件 · 规范/覆盖/追溯</text>
 
   <!-- arrow 1->2 -->
   <line x1="300" y1="216" x2="300" y2="250" stroke="#a78bfa" stroke-width="2" marker-end="url(#arr)"/>
@@ -73,8 +73,8 @@
 
   <!-- back to same MATLAB session -->
   <path d="M748,532 L748,560 L300,560 L300,536" fill="none" stroke="#5eead4" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arr)"/>
-  <text x="430" y="578" fill="#5eead4" font-size="11">shareMATLABSession → attach 到同一个活动 MATLAB 会话（读写你的实况模型）</text>
+  <text x="520" y="578" fill="#5eead4" font-size="11" text-anchor="middle">shareMATLABSession → attach 同一活动 MATLAB 会话</text>
 
   <!-- side note -->
-  <text x="884" y="610" fill="#6b6480" font-size="10" text-anchor="end">会话按 convId 隔离；工程记录器独立于会话并写入 ~/.matlab-copilot/change-records</text>
+  <text x="884" y="610" fill="#6b6480" font-size="10" text-anchor="end">convId 会话隔离；工程记录器独立写入 ~/.matlab-copilot/change-records</text>
 </svg>

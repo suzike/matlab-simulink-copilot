@@ -38,9 +38,10 @@ end
 opts = matlab.addons.toolbox.ToolboxOptions(root, identifier);
 opts.ToolboxFiles = files;                   % 覆盖为筛选后的文件列表
 opts.ToolboxName = "MATLAB-Copilot";            % 纯 ASCII — 避免安装路径含 CJK 字符导致 Node.js 子进程问题
-opts.ToolboxVersion = "0.13.0";
-opts.Summary = "AI Copilot sidebar for MATLAB/Simulink";
+opts.ToolboxVersion = "0.14.0";
+opts.Summary = "AI Copilot and RFLPV MBSE workflow for MATLAB/Simulink";
 opts.Description = ['Native AI Copilot sidebar for MATLAB/Simulink (Claude Code / Codex backend). ' ...
+    'Includes trustworthy model change records and an RFLPV MBSE workflow. ' ...
     'Sidecar has zero npm dependencies — no node_modules, no npm install needed.'];
 opts.AuthorName = "jushenghuainango";
 opts.ToolboxMatlabPath = "matlab";           % 只加入运行入口与 +matlabcopilot 包

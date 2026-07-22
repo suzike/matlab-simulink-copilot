@@ -39,7 +39,7 @@ await page.evaluate(() => {
   onSidecar({ type: 'result', convId: 'main', ok: true, costUsd: 0.018 });
 });
 await page.waitForTimeout(600);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.13.0-ui-overview.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.0-ui-overview.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 
 await page.evaluate(() => {
   onSidecar({ type: 'change_recorder_state', state: {
@@ -64,5 +64,29 @@ await page.evaluate(() => {
   document.querySelector('#tb-recorder').click();
 });
 await page.waitForTimeout(300);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.13.0-change-recorder.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.0-change-recorder.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+
+await page.evaluate(() => {
+  hidePops();
+  onSidecar({ type: 'mbse_workflow_state', message: '验证计划已执行，等待工程确认。', state: {
+    initialized: true, projectRoot: 'E:/Projects/ThermalManagement', systemName: 'ThermalManagementSystem',
+    description: '面向整车热管理控制的需求、架构、分配与验证基线。', currentPhase: 'V',
+    requirementsSource: 'requirements.csv', functionalSource: 'mbse/architecture/functional-architecture.json',
+    logicalSource: 'mbse/architecture/logical-architecture.json',
+    physicalSource: 'mbse/architecture/physical-architecture.json',
+    verificationSource: 'mbse/verification-plan.json',
+    capabilities: { requirementsToolbox: true, systemComposer: true, matlabProject: true },
+    phases: [
+      { id: 'R', name: '需求', status: 'confirmed', summary: '18 条需求已通过原生需求集验证' },
+      { id: 'F', name: '功能架构', status: 'confirmed', summary: '7 个功能、8 条连接已确认' },
+      { id: 'L', name: '逻辑架构', status: 'confirmed', summary: '5 个逻辑元素与 7 项 F→L 分配已确认' },
+      { id: 'P', name: '物理架构', status: 'confirmed', summary: '4 个物理组件、Profile 与 5 项 L→P 分配已确认' },
+      { id: 'V', name: '验证', status: 'executed', summary: '18 个验证项全部通过，R→F→L→P 追溯链完整' },
+    ],
+  } });
+  mbseSelectedPhase = 'V';
+  document.querySelector('#tb-mbse').click();
+});
+await page.waitForTimeout(300);
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.0-mbse-workflow.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 await browser.close();

@@ -76,6 +76,7 @@ gate('REL-003', '关键源码与图标已跟踪', () => {
     'sidecar/src/projectChangeRecorder.js',
     'matlab/+matlabcopilot/ChangeTransaction.m',
     'matlab/+matlabcopilot/ModelFileDiff.m',
+    'matlab/+matlabcopilot/MBSEWorkflow.m',
   ];
   const missing = required.filter((p) => !tracked.has(p));
   assert(missing.length === 0, `关键文件未纳入 Git: ${missing.join(', ')}`);
@@ -137,6 +138,7 @@ if (artifact) {
       'fsroot/sidecar/src/projectChangeRecorder.js',
       'fsroot/matlab/+matlabcopilot/ChangeTransaction.m',
       'fsroot/matlab/+matlabcopilot/ModelFileDiff.m',
+      'fsroot/matlab/+matlabcopilot/MBSEWorkflow.m',
       'metadata/addonProperties.xml',
       'metadata/configuration.xml',
     ];

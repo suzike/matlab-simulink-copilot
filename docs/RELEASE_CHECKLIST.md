@@ -14,7 +14,7 @@ npm run release:verify
 `release:verify` 依次执行：
 
 1. Sidecar Node 单元测试。
-2. 32 项 Playwright 桌面与窄屏布局测试，检查工程切换隔离、有界会话墓碑、三态快捷栏、滚轮横移、悬停边界、空模型下拉、分阶段变更记录器、横向溢出和按钮文字越界。
+2. 34 项 Playwright 桌面与窄屏布局测试，检查工程切换隔离、有界会话墓碑、三态快捷栏、滚轮横移、悬停边界、空模型下拉、分阶段变更记录器、RFLPV 弹窗、横向溢出和按钮文字越界。
 3. 版本一致性、运行时零依赖、Git 清单、UTF-8、UI 脚本语法、打包排除规则和 `.mltbx` 内容检查。
 
 `.mltbx` 只保留运行时源码、MATLAB 验收入口和用户文档；CI、Playwright 用例、Node 单测、发布脚本、`node_modules` 与临时证据目录不得进入安装包。
@@ -29,7 +29,7 @@ node scripts/release-check.mjs `
 
 ## MATLAB R2025b 验收
 
-默认模式不会改变已安装的 Add-On。脚本解包最终 `.mltbx`，直接对包内文件执行类加载、`checkcode`、`copilot_doctor` 和 Echo TCP 全链路：
+默认模式不会改变已安装的 Add-On。脚本解包最终 `.mltbx`，直接对包内文件执行类加载、`checkcode`、`copilot_doctor` 和 Echo TCP 全链路；doctor 在验收中使用临时空闲端口，不受当前面板或其他本地服务影响：
 
 ```matlab
 addpath('matlab')
@@ -75,7 +75,7 @@ Set-Location sidecar
 node ..\scripts\capture-doc-screenshots.mjs
 ```
 
-生成后人工检查两张 v0.13.0 JPG：功能区、变更记录器弹层、输入框和底栏不得重叠，按钮不得裁切或文字越界。静态 SVG 架构图、数据流图、功能图和会话生命周期图必须与 `AGENTS.md` 中的协议和安全边界一致。
+生成后人工检查三张 v0.14.0 JPG：功能区、变更记录器弹层、RFLPV 弹层、输入框和底栏不得重叠，按钮不得裁切或文字越界。静态 SVG 架构图、数据流图、功能图和会话生命周期图必须与 `AGENTS.md` 中的协议和安全边界一致。
 
 ## 发布前人工确认
 
@@ -83,7 +83,7 @@ node ..\scripts\capture-doc-screenshots.mjs
 - MATLAB 验收 JSON 状态为 `PASS`。
 - Ask / Auto / Plan 权限矩阵在真实 MATLAB 面板中抽查通过。
 - 多标签、Fork、Stop、关闭会话和附件清理抽查通过。
-- 从当前 `ui/index.html` 可复现生成两张 README 全屏浏览器截图，并人工确认工具栏、三态控件、快捷栏、输入框和记录器弹层与 Release 一致。
+- 从当前 `ui/index.html` 可复现生成三张 README 全屏浏览器截图，并人工确认工具栏、三态控件、快捷栏、输入框、记录器与 RFLPV 弹层与 Release 一致。
 - 重新生成 `MATLAB-Copilot.mltbx` 与 SHA-256。
 - Release 资产来自当前提交，版本号与 README、CHANGELOG、package 和工具箱一致。
 

@@ -47,6 +47,7 @@ function report = release_acceptance(toolboxFile, opts)
             "sidecar/src/projectChangeRecorder.js"
             "matlab/+matlabcopilot/ChangeTransaction.m"
             "matlab/+matlabcopilot/ModelFileDiff.m"
+            "matlab/+matlabcopilot/MBSEWorkflow.m"
         ];
         missing = required(~arrayfun(@(p) isfile(fullfile(packageRoot, p)), required));
         if isempty(missing)
@@ -120,7 +121,9 @@ function report = release_acceptance(toolboxFile, opts)
 
     if opts.RunDoctor
         try
-            doctor = copilot_doctor();
+            doctorPorts = [freePort(), freePort()];
+            while doctorPorts(2) == doctorPorts(1); doctorPorts(2) = freePort(); end
+            doctor = copilot_doctor(Ports=doctorPorts);
             if doctor.ok
                 gates(end+1) = passGate("MAT-007", "copilot_doctor", string(doctor.passed) + " 项通过"); %#ok<AGROW>
             else

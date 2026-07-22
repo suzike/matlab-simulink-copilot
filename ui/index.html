@@ -448,6 +448,28 @@
   #audit-pop { width: 340px; max-height: 320px; overflow-y: auto; }
   #recorder-pop { width: min(380px, calc(100vw - 24px));
                   max-height: min(560px, calc(100vh - var(--footer-h, 64px) - 70px)); overflow-y: auto; }
+  #mbse-pop { width: min(410px, calc(100vw - 24px));
+              max-height: min(570px, calc(100vh - var(--footer-h, 64px) - 70px)); overflow-y: auto; }
+  #tb-mbse.active { color: var(--brand1); border-color: var(--brand2); background: rgba(124,92,255,.1); }
+  .mbse-head { padding: 7px; border-bottom: 1px solid var(--border); }
+  .mbse-head b { display:block; font-size:12px; }
+  .mbse-head small { display:block; margin-top:2px; color:var(--muted); font-size:10px; overflow-wrap:anywhere; }
+  .mbse-phases { display:grid; grid-template-columns:repeat(5,1fr); gap:4px; padding:8px 7px; }
+  .mbse-phase { min-width:0; height:34px; border:1px solid var(--border2); border-radius:6px;
+                background:var(--surface3); color:var(--muted); cursor:pointer; font:10px var(--sans); }
+  .mbse-phase b { display:block; font-size:11px; }
+  .mbse-phase.active { color:var(--brand1); border-color:var(--brand2); }
+  .mbse-phase:disabled { opacity:.42; cursor:default; }
+  .mbse-fields { display:grid; gap:5px; padding:8px 7px; border-top:1px solid var(--border); }
+  .mbse-fields input, .mbse-fields textarea, .mbse-fields select { width:100%; box-sizing:border-box;
+    border:1px solid var(--border2); border-radius:6px; background:var(--surface); color:var(--text);
+    padding:5px 7px; font:11px var(--sans); letter-spacing:0; }
+  .mbse-fields textarea { min-height:42px; max-height:72px; resize:vertical; }
+  .mbse-meta { padding:6px 8px; color:var(--muted); font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+  .mbse-actions { display:flex; gap:5px; padding:8px 7px; border-top:1px solid var(--border); }
+  .mbse-actions button { min-width:0; flex:1 1 auto; height:28px; border:1px solid var(--border2); border-radius:6px;
+                         background:var(--surface3); color:var(--text); cursor:pointer; font-size:10px; }
+  .mbse-actions button:disabled { opacity:.38; cursor:default; }
   #tb-recorder.recording { color: #ef4444; border-color: #ef4444; background: rgba(239,68,68,.1); }
   .rec-head { display:flex; align-items:center; gap:8px; padding:4px 7px 9px; border-bottom:1px solid var(--border); }
   .rec-dot { width:8px; height:8px; border-radius:50%; background:var(--faint); flex:0 0 auto; }
@@ -626,6 +648,7 @@
       <button class="tbtn" id="tb-theme" title="界面主题" data-tip="界面主题:Light 亮色 / Dark 暗色 / 随 MATLAB(跟随 MATLAB 当前明暗主题自动切换)。点击选择。">◑</button>
       <button class="tbtn" id="tb-audit" title="变更记录" data-tip="变更记录(可追溯):列出本会话所有破坏性操作(改模型/跑代码/跑测试)的留痕——时间、工具、改了什么、成功与否。同时按天写入 ~/.matlab-copilot/audit-*.jsonl 持久存档。">📋</button>
       <button class="tbtn" id="tb-recorder" title="模型变更记录器" data-tip="工程级持续记录器:建立工程文件基线，持续保存模型、数据字典、需求和 MATLAB 文件每次保存前后的快照；AI 模型编辑会直接写入同一时间线。">●</button>
+      <button class="tbtn" id="tb-mbse" title="MBSE 工程流程" data-tip="MBSE 工程流程:按 R/F/L/P/V 管理需求、功能、逻辑、物理和验证阶段；每阶段均需提案、人工批准、真实构建和确认。">◇</button>
       <button class="tbtn" id="tb-export" title="导出当前对话为 Markdown 文件">⬇</button>
       <button class="tbtn" id="tb-insert" data-tip="回答中插入新需求的处理方式:【⏳ 队列】= 排队,等当前回答结束再自动发出;【⚡ 引导】= 立即中断当前回答,改按新输入回复。点击切换。(回答中按 Esc 可随时中断)">⏳</button>
       <div class="quick-modes" role="group" aria-label="快捷功能显示方式">
@@ -705,6 +728,7 @@
     </div>
     <div id="audit-pop" class="popup hidden"></div>
     <div id="recorder-pop" class="popup hidden"></div>
+    <div id="mbse-pop" class="popup hidden"></div>
   </footer>
   <div id="tip"></div>
   <!-- 批注浮框 / 队列面板:必须放在 footer 外(footer 的 backdrop-filter 会创建包含块,使内部 position:fixed 相对 footer 而非视口) -->
@@ -841,6 +865,8 @@ let config = null, auditLog = null;  // 始终指向「当前活动标签」的�
 let recorderState = { active: false, changeCount: 0, trackedFileCount: 0 };
 let projectChanges = [];
 let recorderDraft = null;
+let mbseState = { initialized: false, currentPhase: 'R', phases: [], capabilities: {} };
+let mbseSelectedPhase = 'R';
 let busy = false;          // = 当前活动标签的 busy(发送/停止按钮用)
 let uid = 0;
 const nextId = () => 'u' + (++uid);
@@ -1417,6 +1443,7 @@ function onSidecar(msg) {
     case 'change_recorder_state': onRecorderState(msg.state); return;
     case 'project_change': onProjectChange(msg.entry); return;
     case 'change_report': onChangeReport(msg.report); return;
+    case 'mbse_workflow_state': onMBSEWorkflowState(msg.state, msg.message); return;
   }
   // 标签页相关事件:把渲染指针指向该会话的 pane,状态/busy 只在它是当前活动标签时影响顶栏。
   const cid = msg.convId || 'main';
@@ -3093,6 +3120,94 @@ function loadThemeChoice() { try { return localStorage.getItem('mc-theme') || 'a
 function saveThemeChoice(c) { try { localStorage.setItem('mc-theme', c); } catch (e) {} }
 // 实际着色:mode = light|dark。dark 是默认(无 data-theme)。
 function paintTheme(mode) { document.documentElement.setAttribute('data-theme', mode === 'light' ? 'light' : 'dark'); }
+function onMBSEWorkflowState(state, message) {
+  mbseState = { ...mbseState, ...(state || {}) };
+  $('tb-mbse').classList.toggle('active', mbseState.initialized === true);
+  $('tb-mbse').title = mbseState.initialized
+    ? 'MBSE 工程流程 · 当前 ' + (mbseState.currentPhase || 'R') : 'MBSE 工程流程';
+  if (message) setStatus(message);
+  if (!$('mbse-pop').classList.contains('hidden')) renderMBSEWorkflow();
+}
+
+function mbsePhase(id) {
+  return toArr(mbseState.phases).find((phase) => phase.id === id) ||
+    { id, name: id, status: id === 'R' ? 'draft' : 'planned' };
+}
+
+function mbseConfigPayload() {
+  return {
+    systemName: $('mbse-system')?.value.trim() || 'UntitledSystem',
+    description: $('mbse-description')?.value.trim() || '',
+    requirementsSource: $('mbse-req-source')?.value.trim() || '',
+    entryPhase: $('mbse-entry')?.value || mbseSelectedPhase || 'R',
+  };
+}
+
+function requestMBSE(action) {
+  toMatlab('mbse_workflow', {
+    action, phase: mbseSelectedPhase,
+    projectRoot: activeTab()?.context?.projectInfo?.root || '',
+    workflowConfig: mbseConfigPayload(),
+  });
+}
+
+function renderMBSEWorkflow() {
+  const pop = $('mbse-pop');
+  const selected = mbsePhase(mbseSelectedPhase);
+  const status = selected.status || 'planned';
+  const caps = mbseState.capabilities || {};
+  const labels = { draft: '草稿', proposed: '待批准', approved: '已批准', generated: '已生成',
+    executed: '待确认', confirmed: '已确认', planned: '后续阶段', blocked: '阻塞' };
+  const phases = ['R', 'F', 'L', 'P', 'V'].map((id) => {
+    const phase = mbsePhase(id);
+    return '<button class="mbse-phase ' + (id === mbseSelectedPhase ? 'active' : '') + '" data-mbse-phase="' + id + '"' +
+      '><b>' + id + ' · ' + escapeHtml(phase.name || id) + '</b>' +
+      escapeHtml(labels[phase.status] || phase.status || 'planned') + '</button>';
+  }).join('');
+  const root = mbseState.projectRoot || activeTab()?.context?.projectInfo?.root || '当前 MATLAB 工作目录';
+  const reqSource = mbseState.requirementsSource || 'requirements.csv';
+  const funcSource = mbseState.functionalSource || 'mbse/architecture/functional-architecture.json';
+  const phaseSources = {
+    R: reqSource,
+    F: funcSource,
+    L: mbseState.logicalSource || 'mbse/architecture/logical-architecture.json',
+    P: mbseState.physicalSource || 'mbse/architecture/physical-architecture.json',
+    V: mbseState.verificationSource || 'mbse/verification-plan.json',
+  };
+  const canRun = selected.id === 'R' ? caps.requirementsToolbox !== false
+    : (['F', 'L', 'P'].includes(selected.id) ? caps.systemComposer !== false : true);
+  const selectedIndex = ['R', 'F', 'L', 'P', 'V'].indexOf(selected.id);
+  const previousConfirmed = selectedIndex <= 0 || mbsePhase(['R', 'F', 'L', 'P', 'V'][selectedIndex - 1]).status === 'confirmed';
+  const canPropose = mbseState.initialized && previousConfirmed;
+  pop.innerHTML = '<div class="pop-title">MBSE 工程流程<span class="pop-hint">RFLPV</span></div>' +
+    '<div class="mbse-head"><b>' + escapeHtml(mbseState.systemName || '未初始化工程') + '</b><small>' + escapeHtml(root) + '</small></div>' +
+    '<div class="mbse-phases">' + phases + '</div>' +
+    '<div class="mbse-fields"><input id="mbse-system" maxlength="100" placeholder="系统名称" value="' + escapeAttr(mbseState.systemName === 'UntitledSystem' ? '' : (mbseState.systemName || '')) + '">' +
+    '<textarea id="mbse-description" maxlength="1000" placeholder="系统边界与工程目标">' + escapeHtml(mbseState.description || '') + '</textarea>' +
+    '<input id="mbse-req-source" maxlength="500" placeholder="需求源相对路径" value="' + escapeAttr(reqSource) + '">' +
+    '<select id="mbse-entry"><option value="R"' + ((mbseState.currentPhase || 'R') === 'R' ? ' selected' : '') + '>从需求阶段开始</option>' +
+    '<option value="F"' + ((mbseState.currentPhase || 'R') === 'F' ? ' selected' : '') + '>复用既有需求，从功能架构开始</option></select></div>' +
+    '<div class="mbse-meta"><b>' + escapeHtml(selected.id + ' · ' + (selected.name || '阶段')) + '</b> · ' + escapeHtml(labels[status] || status) +
+    (selected.summary ? '<br>' + escapeHtml(selected.summary) : '') +
+    '<br>阶段源: ' + escapeHtml(phaseSources[selected.id] || '') +
+    '<br>能力: Requirements ' + (caps.requirementsToolbox ? '可用' : '不可用') + ' · System Composer ' + (caps.systemComposer ? '可用' : '不可用') + '</div>' +
+    '<div class="mbse-actions"><button id="mbse-init"' + (mbseState.initialized ? ' disabled' : '') + '>初始化</button>' +
+    '<button id="mbse-propose"' + (!canPropose ? ' disabled' : '') + '>' + (status === 'draft' ? '提案' : '重新提案') + '</button>' +
+    '<button id="mbse-approve"' + (status !== 'proposed' ? ' disabled' : '') + '>批准</button>' +
+    '<button id="mbse-generate"' + (status !== 'approved' ? ' disabled' : '') + '>生成</button>' +
+    '<button id="mbse-run"' + (!canRun || !['generated', 'executed'].includes(status) ? ' disabled' : '') + '>执行</button>' +
+    '<button id="mbse-confirm"' + (status !== 'executed' ? ' disabled' : '') + '>确认</button></div>';
+  pop.querySelectorAll('[data-mbse-phase]').forEach((button) => {
+    button.onclick = () => { mbseSelectedPhase = button.dataset.mbsePhase; renderMBSEWorkflow(); };
+  });
+  $('mbse-init').onclick = () => requestMBSE('initialize');
+  $('mbse-propose').onclick = () => requestMBSE('propose');
+  $('mbse-approve').onclick = () => requestMBSE('approve');
+  $('mbse-generate').onclick = () => requestMBSE('generate');
+  $('mbse-run').onclick = () => requestMBSE('run');
+  $('mbse-confirm').onclick = () => requestMBSE('confirm');
+}
+
 function applyThemeChoice(choice) {
   themeChoice = choice; saveThemeChoice(choice);
   if (choice === 'light' || choice === 'dark') paintTheme(choice);
@@ -3111,6 +3226,16 @@ $('tb-recorder').onclick = (e) => {
   toMatlab('change_recorder_control', { action: 'status' });
 };
 $('recorder-pop').addEventListener('click', (e) => e.stopPropagation());
+$('tb-mbse').onclick = (e) => {
+  e.stopPropagation();
+  renderMBSEWorkflow();
+  togglePop('mbse-pop');
+  toMatlab('mbse_workflow', {
+    action: 'status', phase: mbseSelectedPhase,
+    projectRoot: activeTab()?.context?.projectInfo?.root || '',
+  });
+};
+$('mbse-pop').addEventListener('click', (e) => e.stopPropagation());
 document.querySelectorAll('#theme-pop .pop-item').forEach((it) => it.onclick = () => { applyThemeChoice(it.dataset.themeChoice); hidePops(); });
 // 选了「随 MATLAB」时,窗口重新获焦就再同步一次(覆盖期间改了 MATLAB 主题的情况)。
 window.addEventListener('focus', () => { if (themeChoice === 'auto') toMatlab('request_theme', {}); });
