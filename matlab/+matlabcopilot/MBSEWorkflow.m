@@ -192,7 +192,8 @@ classdef MBSEWorkflow
             root = matlabcopilot.MBSEWorkflow.requireRoot(projectRoot);
             caps = matlabcopilot.MBSEWorkflow.capabilities();
             if ~caps.requirementsToolbox
-                error('matlabcopilot:MBSEWorkflow:NoRequirementsToolbox', '未检测到 Requirements Toolbox 许可证。');
+                error('matlabcopilot:MBSEWorkflow:NoRequirementsToolbox', ...
+                    '未检测到已安装且已许可的 Requirements Toolbox。');
             end
             reqs = matlabcopilot.MBSEWorkflow.readRequirements( ...
                 matlabcopilot.MBSEWorkflow.absolutePath(root, state.requirementsSource));
@@ -1029,8 +1030,17 @@ classdef MBSEWorkflow
 
         function caps = capabilities()
             req = false; sc = false; project = false;
-            try, req = license('test', 'Simulink_Requirements') == 1; catch, end
-            try, sc = license('test', 'System_Composer') == 1; catch, end
+            try
+                req = license('test', 'Simulink_Requirements') == 1 && ...
+                    ~isempty(which('slreq.new')) && ~isempty(which('slreq.load'));
+            catch
+            end
+            try
+                sc = license('test', 'System_Composer') == 1 && ...
+                    ~isempty(which('systemcomposer.createModel')) && ...
+                    ~isempty(which('systemcomposer.allocation.createAllocationSet'));
+            catch
+            end
             try, project = ~isempty(which('matlab.project.rootProject')); catch, end
             caps = struct('requirementsToolbox', logical(req), 'systemComposer', logical(sc), ...
                 'matlabProject', logical(project));

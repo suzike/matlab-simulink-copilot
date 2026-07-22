@@ -48,8 +48,8 @@ classdef MBSEWorkflowTest < matlab.unittest.TestCase
         end
 
         function buildsNativeRequirementsAndFunctionalArchitecture(testCase)
-            testCase.assumeTrue(license('test', 'Simulink_Requirements') == 1);
-            testCase.assumeTrue(license('test', 'System_Composer') == 1);
+            testCase.assumeTrue(testCase.hasRequirementsToolbox());
+            testCase.assumeTrue(testCase.hasSystemComposer());
             matlabcopilot.MBSEWorkflow.apply(testCase.Root, 'initialize', 'R', ...
                 struct('systemName', 'ThermalController', 'requirementsSource', 'requirements.csv'));
 
@@ -96,7 +96,7 @@ classdef MBSEWorkflowTest < matlab.unittest.TestCase
         end
 
         function refusesToOverwriteUnownedRequirementArtifact(testCase)
-            testCase.assumeTrue(license('test', 'Simulink_Requirements') == 1);
+            testCase.assumeTrue(testCase.hasRequirementsToolbox());
             matlabcopilot.MBSEWorkflow.apply(testCase.Root, 'initialize', 'R', ...
                 struct('systemName', 'ThermalController', 'requirementsSource', 'requirements.csv'));
             matlabcopilot.MBSEWorkflow.apply(testCase.Root, 'propose', 'R', struct());
@@ -112,6 +112,17 @@ classdef MBSEWorkflowTest < matlab.unittest.TestCase
     end
 
     methods (Access=private)
+        function tf = hasRequirementsToolbox(~)
+            tf = license('test', 'Simulink_Requirements') == 1 && ...
+                ~isempty(which('slreq.new')) && ~isempty(which('slreq.load'));
+        end
+
+        function tf = hasSystemComposer(~)
+            tf = license('test', 'System_Composer') == 1 && ...
+                ~isempty(which('systemcomposer.createModel')) && ...
+                ~isempty(which('systemcomposer.allocation.createAllocationSet'));
+        end
+
         function runPhase(testCase, phase)
             matlabcopilot.MBSEWorkflow.apply(testCase.Root, 'propose', phase, struct());
             matlabcopilot.MBSEWorkflow.apply(testCase.Root, 'approve', phase, struct());
