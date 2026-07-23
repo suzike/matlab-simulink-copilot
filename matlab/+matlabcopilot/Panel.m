@@ -37,6 +37,7 @@ classdef Panel < handle
                 opts.Cwd (1,1) string = string(pwd)
                 opts.Port (1,1) double = 8765
                 opts.ControlPort (1,1) double = 8766
+                opts.AutoSelectPorts (1,1) logical = true
                 opts.NodeBin (1,1) string = "node"
             end
 
@@ -54,7 +55,8 @@ classdef Panel < handle
             sidecarDir = fullfile(obj.RootDir, "sidecar");
             obj.Bridge = matlabcopilot.Bridge(sidecarDir, opts.Cwd, ...
                 Backend=opts.Backend, Port=opts.Port, ...
-                ControlPort=opts.ControlPort, NodeBin=opts.NodeBin);
+                ControlPort=opts.ControlPort, ...
+                AutoSelectPorts=opts.AutoSelectPorts, NodeBin=opts.NodeBin);
             obj.Bridge.OnMessage = @(m) obj.onSidecarMessage(m);
             obj.Bridge.OnStatus  = @(s) obj.pushToUi(struct('type', "status", 'text', s));
 

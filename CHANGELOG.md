@@ -9,6 +9,21 @@
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-07-23
+
+### 修复（Fixed）
+
+- Sidecar 启动前检测 client/control 端口；默认端口被 Codex 等本地服务占用时自动选择一对空闲端口，避免请求发送后无响应或误连外部服务。
+- `copilot(..., AutoSelectPorts=false)` 可为固定端口部署保留严格失败语义；Sidecar 提前退出时立即提示日志位置。
+- 恢复 v0.11.1 的消息操作条正常流展开交互，移除 v0.11.2 引入的绝对定位回归；四个操作按钮不再遮挡气泡正文、Fork 分支或后续权限卡。
+- Fork 内层消息只响应自己的直属操作条悬停，避免父级悬停同时展开分支中的其他按钮。
+- System Composer 架构重复构建前先关闭模型、数据字典、Profile 和 Allocation 句柄，避免 `.sldd` 磁盘状态陈旧。
+
+### 验证（Verified）
+
+- Sidecar 86 项 Node 测试、Playwright 36 项桌面/窄屏测试和 MATLAB R2025b 14 项测试全部通过。
+- 在默认端口被占用的真实环境中验证自动选端口与 Echo 全链路；最终 `.mltbx` 已在 MATLAB R2025b 冷安装并核对安装版 UI 哈希。
+
 ## [0.14.0] — 2026-07-22
 
 ### 新增（Added）
@@ -334,6 +349,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.14.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.1
 [0.14.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.0
 [0.13.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.13.0
 [0.11.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.11.2

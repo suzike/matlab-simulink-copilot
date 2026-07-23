@@ -207,7 +207,7 @@
 ## 5. 验证方式
 
 - 单测:`cd sidecar && npm test`。
-- UI 回归:`cd sidecar && npm run test:ui`（当前 desktop/narrow 共 34 项）。
+- UI 回归:`cd sidecar && npm run test:ui`（当前 desktop/narrow 共 36 项）。
 - MATLAB 回归:`matlab -batch "addpath('matlab'); r=runtests({'test/ChangeTransactionTest.m','test/ModelFileDiffTest.m','test/PanelUtilityTest.m','test/SetupTest.m','test/MBSEWorkflowTest.m'}); assertSuccess(r)"`。
 - 不连 MATLAB 联调:`node src/index.js`(设 `MATLAB_COPILOT_BACKEND`)+ `node dev-client.mjs <port> "<问题>"`。
 - 真实面板:`copilot()` 后在工具栏切后端/模型/模式,发消息看流式+思考+工具卡。

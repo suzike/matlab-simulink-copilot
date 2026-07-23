@@ -60,5 +60,5 @@
   <rect x="640" y="436" width="224" height="40" rx="8" fill="#2c2440" stroke="#473a63"/>
   <text x="752" y="461" fill="#cbbff0" font-size="11" text-anchor="middle">无 CDN · 零 npm 依赖</text>
 
-  <text x="460" y="552" fill="#6b6480" font-size="10.5" text-anchor="middle">86 项 sidecar · 34 项 UI 回归 · 12 项 MATLAB 本地回归 · R2023b/R2025b CI</text>
+  <text x="460" y="552" fill="#6b6480" font-size="10.5" text-anchor="middle">86 项 sidecar · 36 项 UI 回归 · 14 项 MATLAB 本地回归 · R2023b/R2025b CI</text>
 </svg>

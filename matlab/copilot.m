@@ -10,12 +10,14 @@ function p = copilot(opts)
     %   Cwd         agent 工作目录,默认 pwd
     %   Port        sidecar 客户端端口,默认 8765
     %   ControlPort 权限确认端口,默认 8766
+    %   AutoSelectPorts 端口冲突时自动选择空闲端口,默认 true
     %   NodeBin     node 可执行文件,默认 "node"
     arguments
         opts.Backend (1,1) string = "claude"
         opts.Cwd (1,1) string = string(pwd)
         opts.Port (1,1) double = 8765
         opts.ControlPort (1,1) double = 8766
+        opts.AutoSelectPorts (1,1) logical = true
         opts.NodeBin (1,1) string = "node"
     end
 
@@ -53,7 +55,8 @@ function p = copilot(opts)
     end
 
     p = matlabcopilot.Panel(Backend=opts.Backend, Cwd=opts.Cwd, ...
-        Port=opts.Port, ControlPort=opts.ControlPort, NodeBin=opts.NodeBin);
+        Port=opts.Port, ControlPort=opts.ControlPort, ...
+        AutoSelectPorts=opts.AutoSelectPorts, NodeBin=opts.NodeBin);
 end
 
 function mirrorSessionDetails()

@@ -39,7 +39,7 @@ await page.evaluate(() => {
   onSidecar({ type: 'result', convId: 'main', ok: true, costUsd: 0.018 });
 });
 await page.waitForTimeout(600);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.0-ui-overview.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.1-ui-overview.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 
 await page.evaluate(() => {
   onSidecar({ type: 'change_recorder_state', state: {
@@ -64,7 +64,7 @@ await page.evaluate(() => {
   document.querySelector('#tb-recorder').click();
 });
 await page.waitForTimeout(300);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.0-change-recorder.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.1-change-recorder.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 
 await page.evaluate(() => {
   hidePops();
@@ -88,5 +88,5 @@ await page.evaluate(() => {
   document.querySelector('#tb-mbse').click();
 });
 await page.waitForTimeout(300);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.0-mbse-workflow.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.1-mbse-workflow.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 await browser.close();

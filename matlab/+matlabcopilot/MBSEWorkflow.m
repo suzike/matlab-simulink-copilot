@@ -244,10 +244,10 @@ classdef MBSEWorkflow
             matlabcopilot.MBSEWorkflow.assertOwnedOrNew(root, state, linkFile);
             slreq.clear();
             if bdIsLoaded(modelName); close_system(modelName, 0); end
+            Simulink.data.dictionary.closeAll('-discard');
             if isfile(modelFile); delete(modelFile); end
             if isfile(dictFile); delete(dictFile); end
             if isfile(linkFile); delete(linkFile); end
-            Simulink.data.dictionary.closeAll('-discard');
 
             old = pwd;
             cleanup = onCleanup(@() cd(old)); %#ok<NASGU>
@@ -289,6 +289,7 @@ classdef MBSEWorkflow
             state = matlabcopilot.MBSEWorkflow.linkFunctionalRequirements(root, state, source, comps);
             save_system(char(modelName));
             close_system(char(modelName), 0);
+            Simulink.data.dictionary.closeAll('-discard');
             state = matlabcopilot.MBSEWorkflow.own(root, state, modelFile);
             state = matlabcopilot.MBSEWorkflow.own(root, state, dictFile);
             artifacts = [modelFile, dictFile];
@@ -626,9 +627,9 @@ classdef MBSEWorkflow
             for file = artifacts; matlabcopilot.MBSEWorkflow.assertOwnedOrNew(root, state, file); end
             slreq.clear(); systemcomposer.allocation.AllocationSet.closeAll();
             if bdIsLoaded(modelName); close_system(modelName, 0); end
-            for file = artifacts; if isfile(file); delete(file); end; end
             Simulink.data.dictionary.closeAll('-discard');
             systemcomposer.profile.Profile.closeAll();
+            for file = artifacts; if isfile(file); delete(file); end; end
             old = pwd; cleanup = onCleanup(@() cd(old)); %#ok<NASGU>
             cd(generated);
             dict = systemcomposer.createDictionary(char(dictFile));
@@ -684,6 +685,8 @@ classdef MBSEWorkflow
             save_system(char(modelName), char(modelFile));
             state = matlabcopilot.MBSEWorkflow.linkComponentRequirements(root, state, specs, comps);
             save_system(char(modelName)); close_system(char(modelName), 0);
+            Simulink.data.dictionary.closeAll('-discard');
+            systemcomposer.profile.Profile.closeAll();
             for file = artifacts
                 if isfile(file); state = matlabcopilot.MBSEWorkflow.own(root, state, file); end
             end
@@ -701,8 +704,14 @@ classdef MBSEWorkflow
             old = pwd;
             cleanup = onCleanup(@() cd(old)); %#ok<NASGU>
             cd(generated);
+            sourceWasLoaded = bdIsLoaded(sourceModelName);
+            targetWasLoaded = bdIsLoaded(targetModelName);
             src = systemcomposer.loadModel(char(sourceModelName));
+            sourceCleanup = onCleanup(@() matlabcopilot.MBSEWorkflow.closeIfNeeded( ...
+                sourceModelName, sourceWasLoaded)); %#ok<NASGU>
             dst = systemcomposer.loadModel(char(targetModelName));
+            targetCleanup = onCleanup(@() matlabcopilot.MBSEWorkflow.closeIfNeeded( ...
+                targetModelName, targetWasLoaded)); %#ok<NASGU>
             set = systemcomposer.allocation.createAllocationSet(char(allocName), char(sourceModelName), char(targetModelName));
             scenario = set.Scenarios(1); scenario.Name = 'MainAllocation';
             for i = 1:numel(mappings)

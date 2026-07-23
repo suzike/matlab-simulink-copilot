@@ -6,6 +6,7 @@ classdef Bridge < handle
         Host = "127.0.0.1"
         Port = 8765
         ControlPort = 8766
+        AutoSelectPorts logical = true
         Backend = "claude"     % "claude" | "echo"
         NodeBin = "node"
         SidecarDir string      % .../sidecar
@@ -25,6 +26,7 @@ classdef Bridge < handle
                 opts.Backend (1,1) string = "claude"
                 opts.Port (1,1) double = 8765
                 opts.ControlPort (1,1) double = 8766
+                opts.AutoSelectPorts (1,1) logical = true
                 opts.NodeBin (1,1) string = "node"
             end
             obj.SidecarDir = sidecarDir;
@@ -32,12 +34,37 @@ classdef Bridge < handle
             obj.Backend = opts.Backend;
             obj.Port = opts.Port;
             obj.ControlPort = opts.ControlPort;
+            obj.AutoSelectPorts = opts.AutoSelectPorts;
             obj.NodeBin = opts.NodeBin;
         end
 
         function start(obj)
+            obj.preparePorts();
             obj.launchSidecar();
             obj.connect();
+        end
+
+        function preparePorts(obj)
+            portsReady = obj.Port ~= obj.ControlPort && ...
+                matlabcopilot.Bridge.isPortAvailable(obj.Host, obj.Port) && ...
+                matlabcopilot.Bridge.isPortAvailable(obj.Host, obj.ControlPort);
+            if portsReady
+                return;
+            end
+
+            requestedPort = obj.Port;
+            requestedControlPort = obj.ControlPort;
+            if ~obj.AutoSelectPorts
+                error('matlabcopilot:portInUse', ...
+                    'Sidecar 端口不可用: client=%d, control=%d。', ...
+                    requestedPort, requestedControlPort);
+            end
+
+            [obj.Port, obj.ControlPort] = ...
+                matlabcopilot.Bridge.availablePortPair(obj.Host);
+            obj.status(sprintf( ...
+                '端口 %d/%d 不可用，已自动切换到 %d/%d', ...
+                requestedPort, requestedControlPort, obj.Port, obj.ControlPort));
         end
 
         function launchSidecar(obj)
@@ -67,6 +94,11 @@ classdef Bridge < handle
             deadline = tic;
             lastErr = '';
             while toc(deadline) < 15
+                if ~isempty(obj.Process) && ~obj.Process.isAlive()
+                    error('matlabcopilot:sidecarExited', ...
+                        'sidecar 启动后提前退出，请检查日志: %s', ...
+                        fullfile(tempdir, 'matlab-copilot-sidecar.log'));
+                end
                 try
                     t = tcpclient(obj.Host, obj.Port, 'Timeout', 5, 'ConnectTimeout', 5);
                     configureTerminator(t, "LF");
@@ -159,6 +191,39 @@ classdef Bridge < handle
     end
 
     methods (Static)
+        function tf = isPortAvailable(host, port)
+            server = [];
+            tf = false;
+            try
+                server = java.net.ServerSocket();
+                server.setReuseAddress(false);
+                server.bind(java.net.InetSocketAddress(char(host), int32(port)));
+                tf = true;
+            catch
+            end
+            if ~isempty(server)
+                try
+                    server.close();
+                catch
+                end
+            end
+        end
+
+        function [port, controlPort] = availablePortPair(host)
+            first = java.net.ServerSocket();
+            firstCleanup = onCleanup(@() first.close()); %#ok<NASGU>
+            first.setReuseAddress(false);
+            first.bind(java.net.InetSocketAddress(char(host), int32(0)));
+
+            second = java.net.ServerSocket();
+            secondCleanup = onCleanup(@() second.close()); %#ok<NASGU>
+            second.setReuseAddress(false);
+            second.bind(java.net.InetSocketAddress(char(host), int32(0)));
+
+            port = double(first.getLocalPort());
+            controlPort = double(second.getLocalPort());
+        end
+
         function out = asciiJson(s)
             % 把字符串里所有非 ASCII 字符转成 \uXXXX(BMP 范围足够覆盖中文)。
             % 性能关键:model_diff 等事件含 base64 截图(数十万字符)+ 少量中文;

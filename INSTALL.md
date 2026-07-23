@@ -260,7 +260,8 @@ copilot
 ### `copilot` 命令参数
 
 ```matlab
-copilot(Backend="claude", Cwd=pwd, Port=8765, ControlPort=8766, NodeBin="node")
+copilot(Backend="claude", Cwd=pwd, Port=8765, ControlPort=8766, ...
+    AutoSelectPorts=true, NodeBin="node")
 ```
 
 | 参数 | 默认 | 说明 |
@@ -269,6 +270,7 @@ copilot(Backend="claude", Cwd=pwd, Port=8765, ControlPort=8766, NodeBin="node")
 | `Cwd` | 当前文件夹 | AI 的工作目录 |
 | `Port` | `8765` | sidecar 通信端口 |
 | `ControlPort` | `8766` | 权限确认端口 |
+| `AutoSelectPorts` | `true` | 指定端口冲突时自动选择一对空闲端口 |
 | `NodeBin` | `"node"` | Node 可执行文件路径（PATH 找不到时填全路径） |
 
 ### 环境变量（在启动 `copilot` 前 `setenv`）
@@ -313,11 +315,11 @@ A: 多半是开了多个 MATLAB 实例。MCP 会 attach 到最后一个 `satk_in
 A: 这是 Codex CLI 自身的冷启动特性（每轮重新拉起进程，单轮可达数十秒）。追求速度建议改用 **Claude Code** 后端，并开启 ⚡ **常驻模式**（工具栏开关，或设 `MATLAB_COPILOT_PERSISTENT=1`），后端进程常驻、消除每轮冷启延迟。
 
 **Q: 端口 8765 / 8766 被占用？**
-A: 用环境变量或 `copilot` 参数换端口，**不要去改源码**：
+A: 默认会自动选择一对空闲端口，无需处理。固定端口部署可关闭自动选择，并用环境变量或 `copilot` 参数换端口：
 ```matlab
-copilot(Port=9000, ControlPort=9001)
+copilot(Port=9000, ControlPort=9001, AutoSelectPorts=false)
 ```
-或先 `setenv('MATLAB_COPILOT_PORT','9000')` 再启动。常见占用来源是上一次没关干净的 copilot 实例。
+常见占用来源包括 Codex 桌面 bridge 和上一次未正常退出的 Copilot Sidecar；不要直接结束不属于 MATLAB Copilot 的占用进程。
 
 **Q: 面板关不掉 / 重新加载类报错？**
 A: 重建时遵循顺序——**先关面板，再 `clear classes`**：

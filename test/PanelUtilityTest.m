@@ -31,5 +31,36 @@ classdef PanelUtilityTest < matlab.unittest.TestCase
             testCase.verifyEqual(string(req.requirements), ["REQ-1", "REQ-2"]);
             testCase.verifyEmpty(matlabcopilot.Panel.projectEvidenceEntry(struct('type', "status")));
         end
+
+        function bridgeSelectsFreePortsWhenRequestedPortsAreBusy(testCase)
+            listener = java.net.ServerSocket();
+            listener.bind(java.net.InetSocketAddress('127.0.0.1', int32(0)));
+            cleanup = onCleanup(@() listener.close()); %#ok<NASGU>
+            occupied = double(listener.getLocalPort());
+
+            bridge = matlabcopilot.Bridge(tempdir, tempdir, ...
+                Port=occupied, ControlPort=occupied, AutoSelectPorts=true);
+            bridge.preparePorts();
+
+            testCase.verifyNotEqual(bridge.Port, occupied);
+            testCase.verifyNotEqual(bridge.ControlPort, occupied);
+            testCase.verifyNotEqual(bridge.Port, bridge.ControlPort);
+            testCase.verifyTrue(matlabcopilot.Bridge.isPortAvailable( ...
+                bridge.Host, bridge.Port));
+            testCase.verifyTrue(matlabcopilot.Bridge.isPortAvailable( ...
+                bridge.Host, bridge.ControlPort));
+        end
+
+        function bridgeCanRequireFixedPorts(testCase)
+            listener = java.net.ServerSocket();
+            listener.bind(java.net.InetSocketAddress('127.0.0.1', int32(0)));
+            cleanup = onCleanup(@() listener.close()); %#ok<NASGU>
+            occupied = double(listener.getLocalPort());
+
+            bridge = matlabcopilot.Bridge(tempdir, tempdir, ...
+                Port=occupied, ControlPort=occupied, AutoSelectPorts=false);
+            testCase.verifyError(@() bridge.preparePorts(), ...
+                'matlabcopilot:portInUse');
+        end
     end
 end

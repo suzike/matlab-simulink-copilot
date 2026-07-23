@@ -82,6 +82,70 @@ test('可信变更事务卡展示验证与回退状态', async ({ page }) => {
   await expect(rollback).toContainText('已恢复检查点');
 });
 
+test('消息操作条不遮挡正文、Fork 区或后续权限卡', async ({ page }) => {
+  await page.evaluate(() => {
+    useRender('main');
+    messages.innerHTML = '';
+    bubbles = {};
+    thinks = {};
+    onSidecar({ type: 'assistant_start', convId: 'main', id: 'answer-actions' });
+    onSidecar({
+      type: 'assistant_delta', convId: 'main', id: 'answer-actions',
+      text: '已完成当前检查，下面需要确认写入本地经验文件。'
+    });
+    onSidecar({ type: 'assistant_stop', convId: 'main', id: 'answer-actions' });
+    onSidecar({
+      type: 'permission_request', convId: 'main', id: 'permission-actions',
+      tool: 'mcp__approval__approval', action: '保存团队经验',
+      input: { file: 'C:/Users/test/Documents/.copilot_kb/index.json' },
+      diff: { type: 'file_write', file: 'C:/Users/test/Documents/.copilot_kb/index.json', exists: false }
+    });
+  });
+
+  const row = page.locator('.row.assistant').last();
+  const hiddenBounds = await page.evaluate(() => {
+    const bubble = document.querySelector('.row.assistant:last-of-type .bubble')
+      || document.querySelector('.row.assistant .bubble');
+    const actions = bubble.querySelector(':scope > .msg-actions');
+    const permission = document.querySelector('.perm');
+    const actionRect = actions.getBoundingClientRect();
+    const permissionRect = permission.getBoundingClientRect();
+    return { actionHeight: actionRect.height, actionsBottom: actionRect.bottom, permissionTop: permissionRect.top };
+  });
+  expect(hiddenBounds.actionHeight).toBe(0);
+  expect(hiddenBounds.actionsBottom).toBeLessThanOrEqual(hiddenBounds.permissionTop - 4);
+
+  await row.hover();
+  await expect(row.locator('.msg-actions')).toBeVisible();
+  await page.waitForTimeout(180);
+  const visibleBounds = await page.evaluate(() => {
+    const bubble = document.querySelector('.row.assistant:last-of-type .bubble')
+      || document.querySelector('.row.assistant .bubble');
+    const body = bubble.querySelector('p:last-of-type');
+    const actions = bubble.querySelector(':scope > .msg-actions');
+    const permission = document.querySelector('.perm');
+    const bodyRect = body.getBoundingClientRect();
+    const actionRect = actions.getBoundingClientRect();
+    const permissionRect = permission.getBoundingClientRect();
+    return {
+      bodyBottom: bodyRect.bottom, actionsTop: actionRect.top,
+      actionsBottom: actionRect.bottom, permissionTop: permissionRect.top
+    };
+  });
+  expect(visibleBounds.actionsTop).toBeGreaterThanOrEqual(visibleBounds.bodyBottom + 10);
+  expect(visibleBounds.actionsBottom).toBeLessThanOrEqual(visibleBounds.permissionTop - 4);
+
+  await row.getByRole('button', { name: '⑂ Fork' }).click();
+  const forkBounds = await page.evaluate(() => {
+    const bubble = document.querySelector('.row.assistant:last-of-type .bubble')
+      || document.querySelector('.row.assistant .bubble');
+    const actions = bubble.querySelector(':scope > .msg-actions').getBoundingClientRect();
+    const fork = bubble.querySelector(':scope > .fork-zone').getBoundingClientRect();
+    return { actionsBottom: actions.bottom, forkTop: fork.top };
+  });
+  expect(forkBounds.actionsBottom).toBeLessThanOrEqual(forkBounds.forkTop - 8);
+});
+
 test('工程模型变更记录器展示状态、时间线与报告路径', async ({ page }) => {
   await page.evaluate(() => {
     onSidecar({ type: 'change_recorder_state', state: {
