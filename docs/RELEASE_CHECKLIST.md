@@ -77,6 +77,8 @@ node ..\scripts\capture-doc-screenshots.mjs
 
 生成后人工检查三张 v0.14.2 JPG：功能区、变更记录器弹层、RFLPV 弹层、输入框和底栏不得重叠，按钮不得裁切或文字越界。静态 SVG 架构图、数据流图、功能图和会话生命周期图必须与 `AGENTS.md` 中的协议和安全边界一致。
 
+README 的“版本重点”只展示本次最新版本；发布旧版本的详细新增、修复和验证记录只保留在 `CHANGELOG.md`，不得继续追加到 README。
+
 ## 发布前人工确认
 
 - GitHub Actions `Quality gates` 通过。

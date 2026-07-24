@@ -153,7 +153,7 @@ MBSE 例外仍是 MATLAB 本地事件：UI 发 `mbse_workflow{action,phase,proje
 - **跑测试**:`cd sidecar && npm test`(当前 90 个,15 文件)+`npm run test:ui`(当前 36 项,desktop/narrow 各执行 18 个场景)。MATLAB 测试运行 `matlab -batch "addpath('matlab'); r=runtests({'test/ChangeTransactionTest.m','test/ModelFileDiffTest.m','test/PanelUtilityTest.m','test/SetupTest.m','test/MBSEWorkflowTest.m'}); assertSuccess(r)"`(当前 14 项)。CI 另跑 R2023b/R2025b + Simulink 兼容性矩阵；MBSE 真工件测试在对应许可证可用时执行。新增逻辑配单测。MATLAB 侧用 `matlab -batch` + `checkcode`/`meta.class.fromName`/静态方法自检。
 - **对标官方差距**:见 plan.md 差距表。文档锚定走**在线 RAG**(中国可访问 mathworks.com 文档站;不可用的只是官方 Copilot 产品)——系统提示 **best-effort** WebFetch 抓取核实,**失败不重试、优雅降级**标注「未核实」(MATLAB 启动的 sidecar 进程联网环境可能和 shell 不同,WebFetch 在面板里可能失败,故不强制)。可追溯靠 `server.js:recordAudit`(破坏性 tool_use → 审计 JSONL + `audit` 事件)。
 - **不连 MATLAB 联调**:`node src/index.js`(设 env backend)+ `node dev-client.mjs <port> "<q>"`(自动批准权限请求)。
-- **UI 视觉**:`.claude/launch.json` 已配静态服务;`preview_start` 后 `preview_eval` 注入 `onSidecar(...)` 样例事件验证。README 主图用 `node scripts/capture-doc-screenshots.mjs` 从当前 `ui/index.html` 可复现生成并人工检查遮挡、裁切和文字越界；不复用旧版本截图，不使用 Mermaid。
+- **UI 视觉与 README**:`.claude/launch.json` 已配静态服务;`preview_start` 后 `preview_eval` 注入 `onSidecar(...)` 样例事件验证。README 主图用 `node scripts/capture-doc-screenshots.mjs` 从当前 `ui/index.html` 可复现生成并人工检查遮挡、裁切和文字越界；不复用旧版本截图，不使用 Mermaid。README 的“版本重点”只保留当前最新版本，旧版本新增、修复和验证明细统一维护在 `CHANGELOG.md`，不得在 README 中逐版累积。
 
 ## 9. 安全红线
 
