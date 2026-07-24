@@ -37,9 +37,12 @@ await page.evaluate(() => {
     rollbackAttempted: false, rolledBack: false, compileOk: true, standardsOk: true,
     newStandardErrors: [], manifestFile: 'C:/Users/demo/.matlab-copilot/runs/run-req-241/manifest.json' });
   onSidecar({ type: 'result', convId: 'main', ok: true, costUsd: 0.018 });
+  onSidecar({ type: 'user_echo', convId: 'main', text: '停止当前工具检查。' });
+  onSidecar({ type: 'tool_use', convId: 'main', id: 'doc-interrupted', name: 'mcp__matlab__detect_matlab_toolboxes', input: {} });
+  onSidecar({ type: 'status', convId: 'main', text: 'interrupted' });
 });
 await page.waitForTimeout(600);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.2-ui-overview.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.3-ui-overview.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 
 await page.evaluate(() => {
   onSidecar({ type: 'change_recorder_state', state: {
@@ -64,7 +67,7 @@ await page.evaluate(() => {
   document.querySelector('#tb-recorder').click();
 });
 await page.waitForTimeout(300);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.2-change-recorder.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.3-change-recorder.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 
 await page.evaluate(() => {
   hidePops();
@@ -88,5 +91,5 @@ await page.evaluate(() => {
   document.querySelector('#tb-mbse').click();
 });
 await page.waitForTimeout(300);
-await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.2-mbse-workflow.jpg'), type: 'jpeg', quality: 90, fullPage: true });
+await page.screenshot({ path: path.join(root, 'docs', 'images', 'v0.14.3-mbse-workflow.jpg'), type: 'jpeg', quality: 90, fullPage: true });
 await browser.close();

@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+## [0.14.3] — 2026-07-24
+
+### 修复（Fixed）
+
+- Stop 不再本地提前恢复发送按钮；UI 等待 sidecar 的确定中断回执后再结束忙状态。
+- `interrupted`、`error` 或缺少 `tool_result` 的终态会结算本轮遗留工具卡，避免后台已停止但卡片仍永久显示“运行中”。
+- Claude Code / Codex 即使在收到 Stop 前子进程已退出，也会发送中断确认；引导模式只结算旧轮工具卡，不会被迟到回执清除新轮 busy 状态。
+
+### 验证（Verified）
+
+- Sidecar 92 项 Node 测试与 Playwright 38 项桌面/窄屏测试通过；新增真实 Stop 状态流回归覆盖 `运行中 → 正在停止 → 已中断`。
+
 ## [0.14.2] — 2026-07-24
 
 ### 修复（Fixed）
@@ -362,6 +374,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.14.3]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.3
 [0.14.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.2
 [0.14.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.1
 [0.14.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.0

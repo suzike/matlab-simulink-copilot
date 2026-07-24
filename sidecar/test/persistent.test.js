@@ -25,6 +25,15 @@ test('persistent:默认关闭(走可靠的 resume 模式)', () => {
   assert.equal(a.persistent, false);
 });
 
+test('interrupt:child 已退出时仍确认中断以收尾 UI', () => {
+  const a = new ClaudeCodeAdapter({});
+  const out = [];
+  a.on('event', (event) => out.push(event));
+  a.interrupt();
+  assert.deepEqual(out, [{ type: 'status', text: 'interrupted' }]);
+  assert.equal(a.busy, false);
+});
+
 test('persistent:opts.persistent=true 显式开启', () => {
   const a = new ClaudeCodeAdapter({ persistent: true });
   assert.equal(a.persistent, true);

@@ -251,8 +251,9 @@ export class CodexAdapter extends BackendAdapter {
     if (this.child) {
       this.killChild(this.child, { userAbort: true });
       this.child = null;
-      this.emitEvent({ type: OutMsg.STATUS, text: 'interrupted' });
     }
+    // 即使 child 已先行退出也必须确认中断，让 UI 结算遗留的运行中工具卡。
+    this.emitEvent({ type: OutMsg.STATUS, text: 'interrupted' });
   }
 
   async stop() {

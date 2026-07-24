@@ -82,6 +82,45 @@ test('可信变更事务卡展示验证与回退状态', async ({ page }) => {
   await expect(rollback).toContainText('已恢复检查点');
 });
 
+test('停止会话后运行中工具卡收到确认并结算为已中断', async ({ page }) => {
+  await page.evaluate(() => {
+    useRender('main');
+    onSidecar({ type: 'user_echo', convId: 'main', text: '执行一个耗时检查' });
+    onSidecar({
+      type: 'tool_use', convId: 'main', id: 'tool-stop',
+      name: 'mcp__matlab__detect_matlab_toolboxes', input: {}
+    });
+  });
+
+  const card = page.locator('#tool-main-tool-stop');
+  await expect(card).toHaveClass(/run/);
+  await page.locator('#stop').click();
+  await expect(page.locator('#status')).toHaveText('正在停止…');
+  await expect(card).toHaveClass(/run/);
+  await expect(page.locator('#stop')).toBeVisible();
+
+  await page.evaluate(() => onSidecar({
+    type: 'status', convId: 'main', text: 'interrupted'
+  }));
+  await expect(card).not.toHaveClass(/run/);
+  await expect(card).toHaveClass(/cancel/);
+  await expect(card.locator('.pill')).toHaveText('已中断');
+  await expect(page.locator('#status')).toHaveText('已中断');
+  await expect(page.locator('#send')).toBeVisible();
+
+  await page.evaluate(() => {
+    onSidecar({ type: 'result', convId: 'main', ok: true });
+    onSidecar({
+      type: 'tool_use', convId: 'main', id: 'tool-sidecar-stop',
+      name: 'mcp__matlab__detect_matlab_toolboxes', input: {}
+    });
+    onSidecar({ type: 'status', convId: 'main', text: 'interrupted' });
+  });
+  const sidecarCard = page.locator('#tool-main-tool-sidecar-stop');
+  await expect(sidecarCard).toHaveClass(/cancel/);
+  await expect(sidecarCard.locator('.pill')).toHaveText('已中断');
+});
+
 test('消息操作条不遮挡正文、Fork 区或后续权限卡', async ({ page }) => {
   await page.evaluate(() => {
     useRender('main');

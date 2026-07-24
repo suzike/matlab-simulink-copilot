@@ -251,9 +251,10 @@ export class ClaudeCodeAdapter extends BackendAdapter {
     if (this.child) {
       this.killChild(this.child);
       this.child = null;   // 常驻模式:下轮 sendPersistent 以 sessionId resume 重启
-      this.busy = false;
-      this.emitEvent({ type: OutMsg.STATUS, text: 'interrupted' });
     }
+    this.busy = false;
+    // 即使 child 已先行退出也必须确认中断，让 UI 结算遗留的运行中工具卡。
+    this.emitEvent({ type: OutMsg.STATUS, text: 'interrupted' });
   }
 
   async stop() {

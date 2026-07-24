@@ -16,6 +16,14 @@ test('thread.started 记录 thread_id 供 resume', () => {
   assert.equal(a.threadId, 'th-1');
 });
 
+test('interrupt:child 已退出时仍确认中断以收尾 UI', () => {
+  const a = new CodexAdapter();
+  const out = [];
+  a.on('event', (event) => out.push(event));
+  a.interrupt();
+  assert.deepEqual(out, [{ type: OutMsg.STATUS, text: 'interrupted' }]);
+});
+
 test('agent_message → 助手气泡;reasoning → 思考;turn.completed → result', () => {
   const { out } = collect([
     { type: 'turn.started' },

@@ -24,6 +24,12 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.14.3 Stop 状态闭环（正式发布基线）
+
+- Stop 等待 sidecar 确认后再结束 UI busy；Claude/Codex 无活动 child 时同样返回确定中断回执。
+- `interrupted/error/result` 结算未完成工具卡；引导模式只结算旧轮卡片，不清除新轮状态。
+- 当前验证基线：sidecar **92 tests / 15 files**；Playwright **38 tests**；MATLAB R2025b **14 tests**；真实 MATLAB `uihtml` 已验证工具卡 `运行中 → 已中断`。
+
 ### v0.14.2 后台生命周期修复（正式发布基线）
 
 - 活动 UI 连接断开时触发 sidecar 幂等 shutdown，停止全部会话并清理属于当前 PID 的发现文件。
@@ -214,7 +220,7 @@
 ## 5. 验证方式
 
 - 单测:`cd sidecar && npm test`。
-- UI 回归:`cd sidecar && npm run test:ui`（当前 desktop/narrow 共 36 项）。
+- UI 回归:`cd sidecar && npm run test:ui`（当前 desktop/narrow 共 38 项）。
 - MATLAB 回归:`matlab -batch "addpath('matlab'); r=runtests({'test/ChangeTransactionTest.m','test/ModelFileDiffTest.m','test/PanelUtilityTest.m','test/SetupTest.m','test/MBSEWorkflowTest.m'}); assertSuccess(r)"`。
 - 不连 MATLAB 联调:`node src/index.js`(设 `MATLAB_COPILOT_BACKEND`)+ `node dev-client.mjs <port> "<问题>"`。
 - 真实面板:`copilot()` 后在工具栏切后端/模型/模式,发消息看流式+思考+工具卡。

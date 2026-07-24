@@ -340,6 +340,7 @@
   .tool.run .pill { color: var(--warn); background: rgba(240,169,59,.12); }
   .tool.ok .pill { color: var(--ok); background: rgba(70,209,138,.12); }
   .tool.fail .pill { color: var(--err); background: rgba(255,107,107,.12); }
+  .tool.cancel .pill { color: var(--muted); background: rgba(127,127,142,.12); }
   .tool .body { display: none; padding: 0 11px 9px 41px; }
   .tool.open .body { display: block; }
   .tool .body pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 7px; padding: 7px;
@@ -1468,7 +1469,14 @@ function onSidecar(msg) {
       }
       break;
     }
-    case 'status': if (onActive) setStatus(msg.text === 'thinking' ? '思考中…' : (msg.text || '')); if (msg.text === 'thinking') setBusy(true, cid); break;
+    case 'status':
+      if (msg.text === 'interrupted') {
+        finishInterrupted(cid, onActive);
+      } else {
+        if (onActive) setStatus(msg.text === 'thinking' ? '思考中…' : (msg.text || ''));
+        if (msg.text === 'thinking') setBusy(true, cid);
+      }
+      break;
     case 'thinking_start': ensureThink(msg.id); if (onActive) setStatus('思考中…'); break;
     case 'thinking_delta': { const t = ensureThink(msg.id); t.raw += msg.text || ''; t.body.innerHTML = renderMd(t.raw); scrollDown(); break; }
     case 'thinking_stop': { const t = thinks[msg.id]; if (t) { t.el.classList.remove('thinking'); t.el.classList.add('collapsed'); t.label.textContent = '思考过程（点击展开）'; } break; }
@@ -1514,7 +1522,9 @@ function onSidecar(msg) {
     case 'permission_request': addPermission(msg); break;
     case 'result': {
       cancelErrorFinish(cid);
+      finalizeRunningTools(msg.ok ? '未返回结果' : '未完成');
       setBusy(false, cid);
+      clearInterruptState(tabs[cid]);
       if (checkupOnDone(cid, !msg.ok)) break;   // 体检子会话:只收集结果,不走主流程
       if (msg.costUsd != null) updateCostBar(msg.costUsd, cid);
       if (onActive) setStatus(msg.ok ? '完成' : '出错');
@@ -1523,9 +1533,9 @@ function onSidecar(msg) {
       break;
     }
     // MATLAB figure 兜底 Esc 中断:用户主动停 → 清该会话队列(停就全停,避免卡死)。
-    case 'interrupted': { cancelErrorFinish(cid); setBusy(false, cid); const t = tabs[cid]; if (t) { t.nightMode = false; if (t.queue && t.queue.length) { t.queue = []; if (cid === activeConv) renderQueuePanel(); } } if (onActive) setStatus('已中断'); break; }
+    case 'interrupted': finishInterrupted(cid, onActive); break;
     // 后端失败通常紧跟 RESULT；延迟兜底可兼容仅发 ERROR 的路径，同时避免队列推进两次。
-    case 'error': setBusy(false, cid); if (checkupOnDone(cid, true)) break;
+    case 'error': finalizeRunningTools('未完成'); setBusy(false, cid); clearInterruptState(tabs[cid]); if (checkupOnDone(cid, true)) break;
                   addMsg('error', escapeHtml(msg.message || '未知错误')); deferErrorFinish(cid);
                   if (onActive) showNudge('err', '出错了?一键带完整上下文诊断', '🩺 诊断', () => $('btn-diagnose').click());
                   break;
@@ -1553,7 +1563,7 @@ function addToolCard(msg) {
 function updateToolCard(msg) {
   const el = document.getElementById('tool-' + (msg.convId || 'main') + '-' + msg.id);
   if (!el) return;
-  el.classList.remove('run');
+  el.classList.remove('run', 'cancel', 'ok', 'fail');
   el.classList.add(msg.ok ? 'ok' : 'fail');
   el.querySelector('.pill').innerHTML = msg.ok ? '✓ 完成' : '✕ 失败';
   if (msg.summary) {
@@ -1561,6 +1571,47 @@ function updateToolCard(msg) {
     const lbl = document.createElement('div'); lbl.className = 'lbl'; lbl.textContent = '结果';
     const pre = document.createElement('pre'); pre.textContent = msg.summary;
     body.appendChild(lbl); body.appendChild(pre);
+  }
+}
+function runningToolIds() {
+  return messages ? [...messages.querySelectorAll('.tool.run[id]')].map((el) => el.id) : [];
+}
+function finalizeRunningTools(label, ids) {
+  const idSet = Array.isArray(ids) ? new Set(ids) : null;
+  if (!messages) return;
+  for (const el of messages.querySelectorAll('.tool.run')) {
+    if (idSet && !idSet.has(el.id)) continue;
+    el.classList.remove('run');
+    el.classList.add('cancel');
+    const pill = el.querySelector('.pill');
+    if (pill) pill.textContent = label;
+  }
+}
+function clearInterruptState(t) {
+  if (!t) return;
+  t.interruptMode = null;
+  // null 表示没有本地 Stop 快照；sidecar 主动终止时应结算当前所有运行卡。
+  // [] 表示用户确实在“没有运行卡”的瞬间点击了 Stop，不能误伤随后新轮卡片。
+  t.interruptedToolIds = null;
+}
+function finishInterrupted(cid, onActive) {
+  cancelErrorFinish(cid);
+  const t = tabs[cid];
+  const mode = t && t.interruptMode;
+  finalizeRunningTools('已中断', t && t.interruptedToolIds);
+  clearInterruptState(t);
+  if (mode !== 'steer') {
+    setBusy(false, cid);
+    if (t) {
+      t.nightMode = false;
+      if (t.queue && t.queue.length) {
+        t.queue = [];
+        if (cid === activeConv) renderQueuePanel();
+      }
+    }
+    if (onActive) setStatus('已中断');
+  } else if (onActive) {
+    setStatus('正在执行新指令…');
   }
 }
 
@@ -2363,9 +2414,14 @@ function sendToBackend(finalText, convId) {
 function interruptCurrent() {
   const t = activeTab();
   if (!t) return;
-  if (t.busy) { toMatlab('interrupt', { convId: t.convId }); setBusy(false, t.convId); }
+  if (t.busy) {
+    useRender(t.convId);
+    t.interruptMode = 'stop';
+    t.interruptedToolIds = runningToolIds();
+    toMatlab('interrupt', { convId: t.convId });
+    setStatus('正在停止…');
+  }
   if (t.queue && t.queue.length) { t.queue = []; renderQueuePanel(); }
-  setStatus('已中断');
 }
 function sendMessage() {
   const text = $('input').value.trim();
@@ -2391,6 +2447,8 @@ function sendMessage() {
   if (t.busy && insertMode === 'steer') {
     // 引导:中断当前后端回答 + 立即发新指令。busy 保持 true(不本地 setBusy false,避免与中断回执竞态);
     // 后端 adapter 的 _pending 队列兜底:interrupt 先 kill,新消息排队等 close 后自动发(不丢、不报「上一轮未结束」)。
+    t.interruptMode = 'steer';
+    t.interruptedToolIds = runningToolIds();
     toMatlab('interrupt', { convId: t.convId });
     sendToBackend(finalText, t.convId);
     setStatus('已中断，优先执行新指令…');
