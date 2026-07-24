@@ -24,6 +24,13 @@
 
 ## 3. 已完成(全部已实测,真实 MATLAB R2025b)
 
+### v0.14.2 后台生命周期修复（正式发布基线）
+
+- 活动 UI 连接断开时触发 sidecar 幂等 shutdown，停止全部会话并清理属于当前 PID 的发现文件。
+- Windows 后端统一按精确 PID 结束完整进程树，避免外层 shell 退出后 Claude Code、Codex 或权限 MCP 继续运行。
+- MATLAB `Bridge.close()` 先释放 TCP 等待优雅退出，超时后逐级强制停止 Java sidecar 进程。
+- 当前验证基线：sidecar **90 tests / 15 files**；Playwright **36 tests**；MATLAB R2025b **14 tests**；最终安装包另执行解包验收和本机安装版关闭面板回归。
+
 ### v0.14.0 MBSE 工程流程（正式发布基线）
 
 - 新增工程内 `MBSEWorkflow` 状态机，R/F/L/P/V 五阶段全部开放；每阶段按 `draft → proposed → approved → generated → executed → confirmed` 推进。

@@ -6,11 +6,11 @@
 
 停靠式 `uihtml` 面板，自动感知 MATLAB 工程和活动模型，通过本地 sidecar 驱动 Claude Code / Codex，并复用 MATLAB MCP 操作当前 MATLAB 会话。
 
-[![Version](https://img.shields.io/badge/version-0.14.1-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.1)
+[![Version](https://img.shields.io/badge/version-0.14.2-success)](https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.2)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2023b%2B-orange?logo=mathworks)
 ![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?logo=node.js&logoColor=white)
 ![Backends](https://img.shields.io/badge/backends-Claude%20Code%20%7C%20Codex-2563eb)
-![Tests](https://img.shields.io/badge/sidecar-86%20tests-16a34a)
+![Tests](https://img.shields.io/badge/sidecar-90%20tests-16a34a)
 ![Runtime dependencies](https://img.shields.io/badge/sidecar-0%20npm%20dependencies-0f766e)
 
 [安装指南](INSTALL.md) · [变更日志](CHANGELOG.md) · [开发计划](plan.md) · [贡献指南](CONTRIBUTING.md) · [最新 Release](https://github.com/suzike/matlab-simulink-copilot/releases/latest)
@@ -19,10 +19,10 @@
 
 ## 当前实机界面
 
-下面三张图由 v0.14.1 的 `ui/index.html` 在全屏浏览器预览中生成，展示与 MATLAB `uihtml` 面板相同的前端代码、布局和交互状态。
+下面三张图由 v0.14.2 的 `ui/index.html` 在全屏浏览器预览中生成，展示与 MATLAB `uihtml` 面板相同的前端代码、布局和交互状态。
 
 <div align="center">
-  <img src="docs/images/v0.14.1-ui-overview.jpg" width="900" alt="MATLAB Copilot v0.14.1 全屏界面与可信变更事务">
+  <img src="docs/images/v0.14.2-ui-overview.jpg" width="900" alt="MATLAB Copilot v0.14.2 全屏界面与可信变更事务">
   <br>
   <sub>全屏浏览器预览：活动工程上下文、Echo 全链路冒烟、当前工具栏与 MBD 快捷动作。</sub>
 </div>
@@ -30,7 +30,7 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/v0.14.1-change-recorder.jpg" width="900" alt="MATLAB Copilot v0.14.1 分阶段工程模型变更记录器">
+  <img src="docs/images/v0.14.2-change-recorder.jpg" width="900" alt="MATLAB Copilot v0.14.2 分阶段工程模型变更记录器">
   <br>
   <sub>全屏浏览器预览：变更范围、批准/执行/验证阶段、模型级交付判断与证据包状态。</sub>
 </div>
@@ -38,12 +38,20 @@
 <br>
 
 <div align="center">
-  <img src="docs/images/v0.14.1-mbse-workflow.jpg" width="900" alt="MATLAB Copilot v0.14.1 MBSE RFLPV 工程流程">
+  <img src="docs/images/v0.14.2-mbse-workflow.jpg" width="900" alt="MATLAB Copilot v0.14.2 MBSE RFLPV 工程流程">
   <br>
   <sub>全屏浏览器预览：完整 RFLPV 状态、分阶段设计源、人工批准门禁和真实工具箱能力。</sub>
 </div>
 
-## v0.14.1 重点
+## v0.14.2 重点
+
+- **面板关闭即停止后台**：MATLAB 面板或活动 TCP 连接关闭后，sidecar 立即执行幂等 shutdown，不再保留仍持续调用 Claude Code / Codex 的后台会话。
+- **Windows 进程树精确回收**：后端终止按实际子进程 PID 清理完整进程树，覆盖 `shell:true` 外层进程退出但 CLI 与权限 MCP 孙进程残留的情况。
+- **发现文件所有权保护**：只删除 PID 与当前 sidecar 一致的发现文件，避免旧进程退出时误删新实例的连接信息。
+- **MATLAB 关闭链路兜底**：`Bridge.close()` 先断开 TCP 等待优雅退出，再逐级强制停止，兼顾正常收尾与故障进程回收。
+- **完整回归验证**：90 项 Node 测试、36 项桌面/窄屏 UI 测试和 14 项 MATLAB R2025b 测试通过。
+
+v0.14.1 完成的稳定性修复继续保留：
 
 - **端口冲突自愈**：默认 client/control 端口被占用时自动选择一对可用端口，避免请求无响应或误连其他本地服务；固定端口部署可关闭自动选择并立即失败。
 - **消息操作条回归修复**：恢复气泡内正常流展开，四个悬停按钮不会覆盖正文、Fork 分支或后续权限卡，并保持桌面/窄屏自适应。
@@ -167,7 +175,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 系统架构
 
 <div align="center">
-  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.14.1 静态系统架构图">
+  <img src="docs/images/architecture.svg" width="900" alt="MATLAB Copilot v0.14.2 静态系统架构图">
 </div>
 
 | 层 | 当前职责 | 关键实现 |
@@ -188,7 +196,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ### 一轮消息的数据流
 
 <div align="center">
-  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.14.1 消息数据流图">
+  <img src="docs/images/dataflow.svg" width="900" alt="MATLAB Copilot v0.14.2 消息数据流图">
 </div>
 
 - MATLAB 与 sidecar 使用 localhost TCP + 行分隔 JSON；线上字符串统一转为 ASCII `\uXXXX`，规避 `tcpclient` UTF-8 解码问题。
@@ -200,7 +208,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 功能全景
 
 <div align="center">
-  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.14.1 功能全景图">
+  <img src="docs/images/features.svg" width="900" alt="MATLAB Copilot v0.14.2 功能全景图">
 </div>
 
 ### AI 与模型交互
@@ -253,7 +261,7 @@ v0.10.0 完成的安全与可靠性能力继续保留：
 ## 权限与安全
 
 <div align="center">
-  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.14.1 权限与安全逻辑图">
+  <img src="docs/images/permission.svg" width="900" alt="MATLAB Copilot v0.14.2 权限与安全逻辑图">
 </div>
 
 | 模式 | 只读操作 | 修改模型/写文件 | 执行 MATLAB / shell / 测试 | MATLAB 本地确定性副作用 |
@@ -378,7 +386,7 @@ release_acceptance('MATLAB-Copilot.mltbx', ...
 
 详细发布步骤和受保护的 Add-On 安装验收见 [Release 验收清单](docs/RELEASE_CHECKLIST.md)。
 
-当前主分支发布门槛包括：86 个 sidecar 测试、36 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB R2023b/R2025b CI、R2025b `checkcode` / 类加载与 14 项真实事务/快照/MBSE/安装辅助逻辑测试、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
+当前主分支发布门槛包括：90 个 sidecar 测试、36 项 Playwright 桌面/窄屏回归、UI 两段脚本语法检查、MATLAB R2023b/R2025b CI、R2025b `checkcode` / 类加载与 14 项真实事务/快照/MBSE/安装辅助逻辑测试、最终 `.mltbx` 验收、SHA-256 生成和 GitHub Release 资产校验。
 
 开发环境、代码边界、提交前测试和 Pull Request 要求见 [贡献指南](CONTRIBUTING.md)。正式发布必须遵循 [Release 验收清单](docs/RELEASE_CHECKLIST.md)，并以最终标签对应的 `.mltbx` 为验收对象。
 

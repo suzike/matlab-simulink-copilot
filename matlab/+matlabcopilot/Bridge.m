@@ -168,18 +168,32 @@ classdef Bridge < handle
         end
 
         function close(obj)
+            process = obj.Process;
+            obj.Process = [];
             try
                 if ~isempty(obj.Client)
                     configureCallback(obj.Client, "off");
-                    clear obj.Client;
                     obj.Client = [];
                 end
             catch
             end
             try
-                if ~isempty(obj.Process)
-                    obj.Process.destroy();
-                    obj.Process = [];
+                if ~isempty(process)
+                    % 先释放 TCP，允许 sidecar 收到断连并清理全部后端进程树。
+                    deadline = tic;
+                    while process.isAlive() && toc(deadline) < 2
+                        pause(0.05);
+                    end
+                    if process.isAlive()
+                        process.destroy();
+                        deadline = tic;
+                        while process.isAlive() && toc(deadline) < 1
+                            pause(0.05);
+                        end
+                    end
+                    if process.isAlive()
+                        process.destroyForcibly();
+                    end
                 end
             catch
             end

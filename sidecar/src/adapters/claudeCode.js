@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { BackendAdapter, renderContextPreamble } from './types.js';
 import { createStreamTranslator } from '../streamJsonParser.js';
 import { createLineBuffer, parseLine, OutMsg } from '../protocol.js';
+import { terminateProcessTree } from '../processTree.js';
 
 /**
  * v1 后端:headless Claude Code(`claude --print --output-format stream-json`)。
@@ -242,7 +243,7 @@ export class ClaudeCodeAdapter extends BackendAdapter {
     if (!child) return;
     child._killing = true;
     if (noSession) child._noSession = true;
-    try { child.kill('SIGTERM'); } catch { /* 已退出 */ }
+    terminateProcessTree(child);
   }
 
   interrupt() {

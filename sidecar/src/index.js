@@ -81,18 +81,41 @@ function makeAdapter(state) {
 
 async function main() {
   const initialConfig = { backend: cfg.BACKEND, model: cfg.MODEL || null, effort: 'medium', mode: 'ask', persistent: cfg.PERSISTENT };
-  const server = new Server({
+  const infoPath = path.join(os.tmpdir(), 'matlab-copilot-sidecar.json');
+  let server;
+  let shuttingDown = false;
+
+  const cleanupDiscovery = () => {
+    try {
+      const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+      if (Number(info?.pid) === process.pid) fs.rmSync(infoPath, { force: true });
+    } catch {
+      // Missing, malformed, or already replaced by a newer sidecar.
+    }
+  };
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    try {
+      await server?.stop();
+    } finally {
+      cleanupDiscovery();
+      process.exit(0);
+    }
+  };
+
+  server = new Server({
     makeAdapter,
     config: initialConfig,
     cwd: cfg.CWD,
     host: cfg.HOST,
     clientPort: cfg.CLIENT_PORT,
     controlPort: cfg.CONTROL_PORT,
+    onClientDisconnect: shutdown,
   });
   const { clientPort, controlPort } = await server.start();
 
   // 落一个发现文件,MATLAB 端可读到实际端口与状态。
-  const infoPath = path.join(os.tmpdir(), 'matlab-copilot-sidecar.json');
   fs.writeFileSync(infoPath, JSON.stringify({
     pid: process.pid,
     host: cfg.HOST,
@@ -106,9 +129,9 @@ async function main() {
   // 单行 ready 提示(MATLAB 端可解析 stdout 判断启动成功)。
   process.stdout.write(`SIDECAR_READY ${JSON.stringify({ host: cfg.HOST, clientPort, controlPort, backend: cfg.BACKEND })}\n`);
 
-  const shutdown = async () => { await server.stop(); process.exit(0); };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  process.on('exit', cleanupDiscovery);
 }
 
 main().catch((err) => {

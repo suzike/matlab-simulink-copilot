@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { BackendAdapter, renderContextPreamble } from './types.js';
 import { createLineBuffer, parseLine, OutMsg } from '../protocol.js';
+import { terminateProcessTree } from '../processTree.js';
 
 /**
  * 后端:OpenAI Codex CLI(`codex exec --json`,逐 JSONL 事件)。
@@ -242,7 +243,7 @@ export class CodexAdapter extends BackendAdapter {
     if (!child) return;
     child._killing = true;
     if (userAbort) child._userAbort = true;
-    try { child.kill('SIGTERM'); } catch { /* 已退出 */ }
+    terminateProcessTree(child);
   }
 
   interrupt() {

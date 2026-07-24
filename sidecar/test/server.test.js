@@ -532,3 +532,22 @@ test('UI 断开 → 立即拒绝所有悬挂权限', async () => {
   assert.equal(server.pendingPermissions.size, 0);
   ctrl.close(); await server.stop();
 });
+
+test('活动 UI 断开 → 通知宿主关闭 sidecar', async () => {
+  let disconnects = 0;
+  const server = new Server({
+    makeAdapter: () => new BackendAdapter(),
+    config: {},
+    host: '127.0.0.1',
+    clientPort: 0,
+    controlPort: 0,
+    onClientDisconnect: () => { disconnects += 1; },
+  });
+  const { clientPort } = await server.start();
+  const ui = connectClient(clientPort);
+  await ui.waitFor((m) => m.type === OutMsg.READY);
+  ui.close();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(disconnects, 1);
+  await server.stop();
+});

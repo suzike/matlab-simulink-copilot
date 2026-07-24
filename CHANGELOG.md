@@ -9,6 +9,19 @@
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-07-24
+
+### 修复（Fixed）
+
+- 关闭 Copilot 面板或 MATLAB 侧 TCP 连接断开后，sidecar 立即执行幂等 shutdown，停止所有会话并清理仅属于自身 PID 的发现文件。
+- Windows 后端终止改为按精确 PID 执行进程树清理，避免 `shell:true` 的外层命令进程退出后仍遗留 Claude Code、Codex 或权限 MCP 子进程。
+- `Bridge.close()` 先释放 TCP 并等待 sidecar 优雅退出，超时后再逐级强制结束，避免面板关闭后后台继续请求模型。
+
+### 验证（Verified）
+
+- Sidecar 90 项 Node 测试与 MATLAB R2025b 14 项测试通过；真实 Echo sidecar 在客户端断开后以退出码 0 自行结束并删除发现文件。
+- 真实 MATLAB Echo 面板关闭后，sidecar Java 进程不再存活，发现文件不存在。
+
 ## [0.14.1] — 2026-07-23
 
 ### 修复（Fixed）
@@ -349,6 +362,7 @@
 
 - **零 npm 依赖打包**：sidecar（含权限 MCP）改为零依赖、手写 JSON-RPC，**不打包 `node_modules`** → 根治旧版（≤ 0.5.0）`node_modules` 深层路径超 Windows 260 MAX_PATH 导致文件丢失、权限模块 `approval not found` 的问题。
 
+[0.14.2]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.2
 [0.14.1]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.1
 [0.14.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.14.0
 [0.13.0]: https://github.com/suzike/matlab-simulink-copilot/releases/tag/v0.13.0

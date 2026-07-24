@@ -35,7 +35,7 @@
     <rect x="732" y="102" width="152" height="92" rx="9" fill="#450a0a" stroke="#ef4444"/>
     <text x="808" y="129" fill="#fee2e2" font-weight="700">5. Stop / 关闭</text>
     <text x="808" y="153" fill="#fecaca">dispatchEpoch + 1</text>
-    <text x="808" y="174" fill="#fecaca">清 pending 与临时文件</text>
+    <text x="808" y="174" fill="#fecaca">清 pending / 精确进程树</text>
   </g>
 
   <g stroke="#60a5fa" stroke-width="2" marker-end="url(#lifeArrow)">
@@ -51,7 +51,7 @@
     <text x="56" y="282">A. 新 adapter 未 ready 前，用户消息只等待，不会落到旧配置。</text>
     <text x="56" y="307">B. Stop 既中断已运行任务，也取消尚未越过 ready 屏障的待派发消息。</text>
     <text x="486" y="282">C. 关闭标签或 Fork 后，迟到事件由 closed/generation 双重丢弃。</text>
-    <text x="486" y="307">D. 上下文与附件按 convId 隔离；关闭/中断只清理目标会话。</text>
+    <text x="486" y="307">D. 关闭面板或活动 UI 断开时，sidecar 幂等退出并清理自身发现文件。</text>
   </g>
-  <text x="884" y="374" fill="#64748b" font-size="10" text-anchor="end">v0.14.0 reliability model</text>
+  <text x="884" y="374" fill="#64748b" font-size="10" text-anchor="end">v0.14.2 reliability model</text>
 </svg>

@@ -22,7 +22,8 @@ function normalizeConvId(value) {
  */
 export class Server {
   constructor({ makeAdapter, config, cwd, host, clientPort, controlPort,
-    transactionPrepareTimeoutMs = 15000, permissionTimeoutMs = 180000 }) {
+    transactionPrepareTimeoutMs = 15000, permissionTimeoutMs = 180000,
+    onClientDisconnect = null }) {
     this.makeAdapter = makeAdapter;
     this.config = config || {};      // 默认/全局配置 {backend,model,effort,mode}
     this.cwd = cwd || process.cwd();
@@ -31,6 +32,7 @@ export class Server {
     this.controlPort = controlPort;
     this.transactionPrepareTimeoutMs = transactionPrepareTimeoutMs;
     this.permissionTimeoutMs = permissionTimeoutMs;
+    this.onClientDisconnect = onClientDisconnect;
     this.convs = new Map();          // convId -> 会话状态 {convId,config,adapter,compacting,compactBuf,seed}
     this.client = null;              // 当前 UI socket
     this.pendingPermissions = new Map(); // reqId -> { sock, convId }
@@ -227,7 +229,8 @@ export class Server {
     const feed = createLineBuffer((line) => this.handleClientLine(line));
     sock.on('data', feed);
     sock.on('close', () => {
-      if (this.client === sock) {
+      const wasActiveClient = this.client === sock;
+      if (wasActiveClient) {
         this.client = null;
         this.denyPendingPermissions(() => true, '面板已断开，操作已自动拒绝');
       }
@@ -236,6 +239,9 @@ export class Server {
           if (p.timer) clearTimeout(p.timer);
           this.pendingPreparations.delete(key);
         }
+      }
+      if (wasActiveClient && this.onClientDisconnect) {
+        Promise.resolve().then(() => this.onClientDisconnect()).catch(() => {});
       }
     });
     sock.on('error', () => {});
